@@ -96,3 +96,14 @@ class UnityInterface():
             decisionSteps, terminalSteps = self.getSteps(behaviorName)
             agentsCount = len(set(decisionSteps).union(set(terminalSteps)))
         return agentsCount
+    
+def displayImage(imageNdarray):
+    import matplotlib.pyplot as plt
+    plt.imshow(imageNdarray)
+    plt.axis('off')
+    plt.show()
+
+def saveImage(imageNdarray, fileName):
+    from PIL import Image
+    image = Image.fromarray(imageNdarray[:-12,:,:])
+    image.save(fileName)
