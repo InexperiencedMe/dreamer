@@ -40,6 +40,9 @@ def sequentialModel3D(inputChannels, hiddenChannels, activationFunction = nn.Tan
         layers.append(nn.Flatten())
         return nn.Sequential(*layers).to(device)
 
+def calculateConvNetOutputSize(net, inputShape):
+    return torch.numel(net(torch.ones(inputShape)))
+
 class UnityInterface():
     def __init__(self, envName, seed=None):
         self.channelEnvironment = EnvironmentParametersChannel()
