@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.functional as F
 from utils import *
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class SequenceModel(nn.Module):
     def __init__(self, representationSize, actionSize, recurrentStateSize):
@@ -15,7 +16,7 @@ class SequenceModel(nn.Module):
         return self.recurrent(torch.cat((representation, action), -1), recurrentState)
     
     def initializeRecurrentState(self):
-        return torch.zeros(self.recurrentStateSize)
+        return torch.zeros(self.recurrentStateSize).to(device)
 
 class PriorNet(nn.Module):
     def __init__(self, inputSize, representationClasses=16):

@@ -29,7 +29,7 @@ class Dreamer:
 
     def train(self, observations, actions, rewards):
         encodedObservations = self.convEncoder(observations)
-        initialRecurrentState = self.sequenceModel.initializeRecurrentState().to(device)
+        initialRecurrentState = self.sequenceModel.initializeRecurrentState()
         episodeLength = len(actions)
 
         posteriorNetOutputs = []
@@ -90,3 +90,20 @@ class Dreamer:
         reconstructedObservations = self.convDecoder(fullStateRepresentations)
 
         return reconstructedObservations.detach()
+    
+    @torch.no_grad()
+    def rolloutInitialize(self, initialObservation):
+        encodedObservation = self.convEncoder(initialObservation)
+        initialRecurrentState = self.sequenceModel.initializeRecurrentState()
+        posteriorNetOutput, _ = self.posteriorNet(torch.cat((initialRecurrentState, encodedObservation), -1))
+        return initialRecurrentState, posteriorNetOutput
+
+    @torch.no_grad()
+    def rolloutStep(self, recurrentState, latentState, action):
+        newRecurrentState = self.sequenceModel(latentState, action, recurrentState)
+        newLatentState, _ = self.priorNet(newRecurrentState)
+
+        fullStateRepresentation = torch.cat((newRecurrentState, newLatentState), -1)
+        reconstructedObservation = self.convDecoder(fullStateRepresentation)
+        predictedReward = self.rewardPredictor(fullStateRepresentation)
+        return newRecurrentState, newLatentState, reconstructedObservation, predictedReward

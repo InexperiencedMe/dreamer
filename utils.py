@@ -108,5 +108,5 @@ def displayImage(imageNdarray):
 
 def saveImage(imageNdarray, fileName):
     from PIL import Image
-    image = Image.fromarray(imageNdarray[:-12,:,:])
+    image = Image.fromarray(imageNdarray)
     image.save(fileName)
