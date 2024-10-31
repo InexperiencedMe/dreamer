@@ -58,26 +58,24 @@ class Dreamer:
         predictedRewards = self.rewardPredictor(fullStateRepresentations)
 
         reconstructionLoss = F.mse_loss(reconstructedObservations, observations[1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
-        # priorNetLoss = F.mse_loss(priorNetLogits, posteriorNetLogits.detach())
-        rewardPredictorLoss = 0.1*F.mse_loss(predictedRewards, symlog(rewards))
+        rewardPredictorLoss = F.mse_loss(predictedRewards, symlog(rewards))
 
         priorDistribution       = torch.distributions.Categorical(logits=priorNetLogits)
         posteriorDistribution   = torch.distributions.Categorical(logits=posteriorNetLogits)
         priorDistributionSG     = torch.distributions.Categorical(logits=priorNetLogits.detach())
         posteriorDistributionSG = torch.distributions.Categorical(logits=posteriorNetLogits.detach())
 
-        # priorLoss = torch.max(torch.tensor([0.1], device=device), torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution)).mean()
-        # posteriorLoss = torch.max(torch.tensor([0.1], device=device), torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG)).mean()
         priorLoss = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution).mean()
         posteriorLoss = torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG).mean()
+        klLoss = priorLoss + posteriorLoss # We add it because they have the same value, no need to distinguish it
 
-        worldModelLoss = reconstructionLoss + rewardPredictorLoss + priorLoss + posteriorLoss
+        worldModelLoss = reconstructionLoss + rewardPredictorLoss + klLoss
 
         self.worldModelOptimizer.zero_grad()
         worldModelLoss.backward()
         self.worldModelOptimizer.step()
 
-        return worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), priorLoss.item(), posteriorLoss.item()
+        return worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item()
     
     def reconstructObservations(self, observations, actions):
         encodedObservations = self.convEncoder(observations)
