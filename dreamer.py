@@ -98,40 +98,12 @@ class Dreamer:
         posteriorNetOutput, _ = self.posteriorNet(torch.cat((initialRecurrentState, encodedObservation.view(-1)), -1))
         return initialRecurrentState, posteriorNetOutput
 
-    # @torch.no_grad()
-    # def rolloutStep(self, recurrentState, latentState, action):
-    #     newRecurrentState = self.sequenceModel(latentState, action, recurrentState)
-    #     newLatentState, _ = self.priorNet(newRecurrentState)
-
-    #     fullStateRepresentation = torch.cat((newRecurrentState, newLatentState), -1)
-    #     reconstructedObservation = self.convDecoder(fullStateRepresentation)
-    #     predictedReward = self.rewardPredictor(fullStateRepresentation)
-    #     return newRecurrentState, newLatentState, reconstructedObservation, predictedReward
-
     @torch.no_grad()
     def rolloutStep(self, recurrentState, latentState, action):
-        print(f"Initial recurrentState shape: {recurrentState.shape}")
-        print(f"Initial latentState shape: {latentState.shape}")
-        print(f"Action shape: {action.shape}")
-
-        # Compute newRecurrentState and print its shape
         newRecurrentState = self.sequenceModel(latentState, action, recurrentState)
-        print(f"newRecurrentState shape: {newRecurrentState.shape}")
-
-        # Compute newLatentState and print its shape
         newLatentState, _ = self.priorNet(newRecurrentState)
-        print(f"newLatentState shape: {newLatentState.shape}")
 
-        # Concatenate and print shape of the full state representation
         fullStateRepresentation = torch.cat((newRecurrentState, newLatentState), -1)
-        print(f"fullStateRepresentation shape: {fullStateRepresentation.shape}")
-
-        # Compute reconstructedObservation and print its shape
         reconstructedObservation = self.convDecoder(torch.atleast_2d(fullStateRepresentation))
-        print(f"reconstructedObservation shape: {reconstructedObservation.shape}")
-
-        # Compute predictedReward and print its shape
         predictedReward = self.rewardPredictor(fullStateRepresentation)
-        print(f"predictedReward shape: {predictedReward.shape}")
-
         return newRecurrentState, newLatentState, reconstructedObservation, predictedReward
