@@ -6,18 +6,19 @@ from neuralNets import *
 
 class Dreamer:
     def __init__(self):
-        self.representationClasses = 32
-        self.representationSize = self.representationClasses ** 2
+        self.representationLength = 16
+        self.representationClasses = 16
+        self.representationSize = self.representationLength * self.representationClasses
         self.actionSize = 3
-        self.recurrentStateSize = 256
-        self.compressedObservationsSize = 256
+        self.recurrentStateSize = 512
+        self.compressedObservationsSize = 512
         self.obsShape = (3, 96, 96)
 
         self.convEncoder     = ConvEncoder(self.obsShape, self.compressedObservationsSize).to(device)
         self.convDecoder     = ConvDecoder(self.representationSize + self.recurrentStateSize, self.obsShape).to(device)
         self.sequenceModel   = SequenceModel(self.representationSize, self.actionSize, self.recurrentStateSize).to(device)
-        self.priorNet        = PriorNet(self.recurrentStateSize, self.representationClasses).to(device)
-        self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationsSize, self.representationClasses).to(device)
+        self.priorNet        = PriorNet(self.recurrentStateSize, self.representationLength, self.representationClasses).to(device)
+        self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationsSize, self.representationLength, self.representationClasses).to(device)
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
 
         self.worldModelOptimizer = optim.AdamW(
@@ -48,10 +49,10 @@ class Dreamer:
             _, priorNetCurrentLogits = self.priorNet(recurrentStates[timestep])
             priorNetLogits.append(priorNetCurrentLogits)
 
-        posteriorNetOutputs = torch.stack(posteriorNetOutputs)      # [episodeLength    , representationSize]
         recurrentStates = torch.stack(recurrentStates)              # [episodeLength + 1, recurrentStateSize]
-        priorNetLogits = torch.stack(priorNetLogits)                # [episodeLength    , representationSize]
+        posteriorNetOutputs = torch.stack(posteriorNetOutputs)      # [episodeLength    , representationSize]
         posteriorNetLogits = torch.stack(posteriorNetLogits)        # [episodeLength    , representationSize]
+        priorNetLogits = torch.stack(priorNetLogits)                # [episodeLength    , representationSize]
         fullStateRepresentations = torch.cat((recurrentStates[1:], posteriorNetOutputs), -1)
 
         reconstructedObservations = self.convDecoder(fullStateRepresentations)

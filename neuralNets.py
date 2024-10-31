@@ -19,30 +19,52 @@ class SequenceModel(nn.Module):
         return torch.zeros(self.recurrentStateSize).to(device)
 
 class PriorNet(nn.Module):
-    def __init__(self, inputSize, representationClasses=16):
+    def __init__(self, inputSize, representationLength=16, representationClasses=16):
         super().__init__()
-        self.representationSize = representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 256], representationClasses**2)
+        self.representationLength = representationLength
+        self.representationClasses = representationClasses
+        self.mlp = sequentialModel1D(inputSize, [512, 256], representationLength*representationClasses)
     
     def forward(self, x):
         logits = self.mlp(x)
-        stateMatrix = logits.view(-1, self.representationSize, self.representationSize)
-        _, indices = torch.max(stateMatrix, dim=-1)
-        representation = F.one_hot(indices, num_classes=self.representationSize)
-        return representation.view(-1), logits
+        sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses))
+        return sample.view(-1), logits
     
 class PosteriorNet(nn.Module):
-    def __init__(self, inputSize, representationClasses=16):
+    def __init__(self, inputSize, representationLength=16, representationClasses=16):
         super().__init__()
-        self.representationSize = representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 256], representationClasses**2)
+        self.representationLength = representationLength
+        self.representationClasses = representationClasses
+        self.mlp = sequentialModel1D(inputSize, [512, 256], representationLength*representationClasses)
     
     def forward(self, x):
         logits = self.mlp(x)
-        stateMatrix = logits.view(-1, self.representationSize, self.representationSize)
-        _, indices = torch.max(stateMatrix, dim=-1)
-        representation = F.one_hot(indices, num_classes=self.representationSize)
-        return representation.view(-1), logits
+        sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses))
+        return sample.view(-1), logits
+    
+    # def forward(self, x):
+    #     # Input tensor
+    #     print("Input x shape:", x.shape)
+        
+    #     # Passing through the MLP
+    #     logits = self.mlp(x)
+    #     print("Logits shape after MLP:", logits.shape)
+        
+    #     # Reshaping logits for Gumbel softmax
+    #     logits_reshaped = logits.view(-1, self.representationLength, self.representationClasses)
+    #     print("Logits shape after reshaping for Gumbel softmax:", logits_reshaped.shape)
+        
+    #     # Applying Gumbel softmax
+    #     sample = F.gumbel_softmax(logits_reshaped)
+    #     print("Sample shape after Gumbel softmax:", sample.shape)
+        
+    #     # Final reshaping of sample
+    #     sample_final = sample.view(-1, self.representationLength * self.representationClasses)
+    #     print("Sample shape after final reshaping:", sample_final.shape)
+        
+    #     # Returning the final sample and logits
+    #     return sample_final, logits
+
 
 class ConvEncoder(nn.Module):
     def __init__(self, inputShape, outputSize):
