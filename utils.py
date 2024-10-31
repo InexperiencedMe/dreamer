@@ -110,3 +110,9 @@ def saveImage(imageNdarray, fileName):
     from PIL import Image
     image = Image.fromarray(imageNdarray)
     image.save(fileName)
+
+def symlog(x):
+    return torch.sign(x) * torch.log1p(torch.abs(x))
+
+def symexp(x):
+    return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)

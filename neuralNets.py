@@ -22,7 +22,7 @@ class PriorNet(nn.Module):
     def __init__(self, inputSize, representationClasses=16):
         super().__init__()
         self.representationSize = representationClasses
-        self.mlp = sequentialModel1D(inputSize, [256, 256], representationClasses**2)
+        self.mlp = sequentialModel1D(inputSize, [512, 256], representationClasses**2)
     
     def forward(self, x):
         logits = self.mlp(x)
@@ -35,7 +35,7 @@ class PosteriorNet(nn.Module):
     def __init__(self, inputSize, representationClasses=16):
         super().__init__()
         self.representationSize = representationClasses
-        self.mlp = sequentialModel1D(inputSize, [256, 256], representationClasses**2)
+        self.mlp = sequentialModel1D(inputSize, [512, 256], representationClasses**2)
     
     def forward(self, x):
         logits = self.mlp(x)

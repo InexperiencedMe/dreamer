@@ -6,7 +6,7 @@ from neuralNets import *
 
 class Dreamer:
     def __init__(self):
-        self.representationClasses = 16
+        self.representationClasses = 32
         self.representationSize = self.representationClasses ** 2
         self.actionSize = 3
         self.recurrentStateSize = 256
@@ -24,7 +24,7 @@ class Dreamer:
             list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + 
             list(self.sequenceModel.parameters()) + list(self.priorNet.parameters()) + 
             list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()), 
-            lr=1e-3
+            lr=3e-4
 )
 
     def train(self, observations, actions, rewards):
@@ -57,17 +57,27 @@ class Dreamer:
         reconstructedObservations = self.convDecoder(fullStateRepresentations)
         predictedRewards = self.rewardPredictor(fullStateRepresentations)
 
-        reconstructionLoss = F.mse_loss(reconstructedObservations, observations[1:], reduction="none").mean(dim=[-1, -2, -3]).mean()
-        priorNetLoss = F.mse_loss(priorNetLogits, posteriorNetLogits.detach())
-        rewardPredictorLoss = 0.05*F.mse_loss(predictedRewards, rewards)
+        reconstructionLoss = F.mse_loss(reconstructedObservations, observations[1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
+        # priorNetLoss = F.mse_loss(priorNetLogits, posteriorNetLogits.detach())
+        rewardPredictorLoss = 0.1*F.mse_loss(predictedRewards, symlog(rewards))
 
-        worldModelLoss = reconstructionLoss + priorNetLoss + rewardPredictorLoss
+        priorDistribution       = torch.distributions.Categorical(logits=priorNetLogits)
+        posteriorDistribution   = torch.distributions.Categorical(logits=posteriorNetLogits)
+        priorDistributionSG     = torch.distributions.Categorical(logits=priorNetLogits.detach())
+        posteriorDistributionSG = torch.distributions.Categorical(logits=posteriorNetLogits.detach())
+
+        # priorLoss = torch.max(torch.tensor([0.1], device=device), torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution)).mean()
+        # posteriorLoss = torch.max(torch.tensor([0.1], device=device), torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG)).mean()
+        priorLoss = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution).mean()
+        posteriorLoss = torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG).mean()
+
+        worldModelLoss = reconstructionLoss + rewardPredictorLoss + priorLoss + posteriorLoss
 
         self.worldModelOptimizer.zero_grad()
         worldModelLoss.backward()
         self.worldModelOptimizer.step()
 
-        return worldModelLoss.item(), reconstructionLoss.item(), priorNetLoss.item(), rewardPredictorLoss.item()
+        return worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), priorLoss.item(), posteriorLoss.item()
     
     def reconstructObservations(self, observations, actions):
         encodedObservations = self.convEncoder(observations)
@@ -105,5 +115,5 @@ class Dreamer:
 
         fullStateRepresentation = torch.cat((newRecurrentState, newLatentState), -1)
         reconstructedObservation = self.convDecoder(torch.atleast_2d(fullStateRepresentation))
-        predictedReward = self.rewardPredictor(fullStateRepresentation)
+        predictedReward = symexp(self.rewardPredictor(fullStateRepresentation))
         return newRecurrentState, newLatentState, reconstructedObservation, predictedReward
