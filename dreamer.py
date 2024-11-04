@@ -87,63 +87,40 @@ class Dreamer:
         recurrentState = self.sequenceModel.initializeRecurrentState()
         latentState, _ = self.posteriorNet(torch.cat((recurrentState, encodedObservation), -1))
 
-        recurrentStates = []
-        predictedRewards = []
+        fullStateRepresentations = []
         actionLogProbabilities = []
+        predictedRewards = []
         for _ in range(self.imaginationHorizon):
-            recurrentStates.append(recurrentState)
             action, logProbabilities = self.actor(torch.cat((recurrentState, latentState), -1))
             actionLogProbabilities.append(logProbabilities)
 
-   
-                
-            # Update world model's hidden state based on action
-            world_model_input = torch.cat([imagined_state, action_encoded], dim=-1)
-            world_model_input = world_model_input.unsqueeze(1)
-            _, imagined_hidden_state = self.world_model.rnn(world_model_input, imagined_hidden_state)
+            nextRecurrentState = self.sequenceModel(latentState, action, recurrentState)
+            nextLatentState, _ = self.priorNet(recurrentState)
 
-            # Predict next state using prior network (no observation available)
-            next_state_distribution = self.world_model.prior_net(imagined_hidden_state.squeeze(0))
-            next_state_distribution = next_state_distribution.view(
-                self.config.batch_size,
-                self.config.latent_dim,
-                self.config.latent_categories,
-            )
-            imagined_state = gumbel_softmax(
-                next_state_distribution, tau=self.temperature, hard=False
-            ).view(self.config.batch_size, -1)
+            fullStateRepresentation = torch.cat((nextRecurrentState, nextLatentState), -1)
+            reward = self.rewardPredictor(fullStateRepresentation)
 
-            # Predict reward and discount factor for this step
-            decoder_input = torch.cat([imagined_hidden_state.squeeze(0), imagined_state], dim=-1)
-            step_reward = self.world_model.reward_decoder(decoder_input).squeeze(-1)
-            predicted_rewards.append(step_reward)
+            fullStateRepresentations.append(fullStateRepresentation)
+            actionLogProbabilities.append(actionLogProbabilities)
+            predictedRewards.append(reward)
 
-            discount_factor = self.world_model.discount_decoder(decoder_input).squeeze(-1)
-            discount_factor = torch.sigmoid(discount_factor)
-            discounted_factor = discount_factor * self.config.gamma
-            predicted_discounts.append(discounted_factor)
+            recurrentState = nextRecurrentState
+            latentState = nextLatentState
 
-        # Stack all imagined trajectories
-        imagined_hidden_states = torch.stack(imagined_hidden_states)
-        predicted_rewards = torch.stack(predicted_rewards)
-        predicted_discounts = torch.stack(predicted_discounts)
-        action_log_probabilities = torch.stack(action_log_probabilities)
+        fullStateRepresentations = torch.stack(fullStateRepresentation)
+        actionLogProbabilities = torch.stack(actionLogProbabilities)
+        predictedRewards = torch.stack(predictedRewards)
 
-        flattened_hidden_states = imagined_hidden_states.view(-1, self.config.hidden_dim)
+        valueEstimates = self.critic(fullStateRepresentations)
+        lastValue = valueEstimates[-1]  # Bootstrap from last predicted value
 
-        # Compute value estimates for all imagined states
-        value_predictions = self.critic(flattened_hidden_states.detach()).view(
-            self.config.imagination_horizon, self.config.batch_size
-        )
-        self.q_values = value_predictions[0, :].detach().cpu().numpy()  # Save for logging
 
-        # Compute returns using TD(λ) with bootstrapping
-        final_value = value_predictions[-1]  # Bootstrap from last predicted value
+
         lambda_returns = self.lambda_return(
             reward=predicted_rewards,
             value=value_predictions,
             pcont=predicted_discounts,
-            bootstrap=final_value,
+            bootstrap=lastValue,
             lambda_=self.config.lambda_,
         )
         self.returns = lambda_returns[0, :].detach().cpu().numpy()  # Save for logging
