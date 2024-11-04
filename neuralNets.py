@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.functional as F
 from utils import *
+import torch.distributions as distributions
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class SequenceModel(nn.Module):
@@ -41,29 +42,6 @@ class PosteriorNet(nn.Module):
         logits = self.mlp(x)
         sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses))
         return sample.view(-1), logits
-    
-    # def forward(self, x):
-    #     # Input tensor
-    #     print("Input x shape:", x.shape)
-        
-    #     # Passing through the MLP
-    #     logits = self.mlp(x)
-    #     print("Logits shape after MLP:", logits.shape)
-        
-    #     # Reshaping logits for Gumbel softmax
-    #     logits_reshaped = logits.view(-1, self.representationLength, self.representationClasses)
-    #     print("Logits shape after reshaping for Gumbel softmax:", logits_reshaped.shape)
-        
-    #     # Applying Gumbel softmax
-    #     sample = F.gumbel_softmax(logits_reshaped)
-    #     print("Sample shape after Gumbel softmax:", sample.shape)
-        
-    #     # Final reshaping of sample
-    #     sample_final = sample.view(-1, self.representationLength * self.representationClasses)
-    #     print("Sample shape after final reshaping:", sample_final.shape)
-        
-    #     # Returning the final sample and logits
-    #     return sample_final, logits
 
 
 class ConvEncoder(nn.Module):
@@ -121,3 +99,25 @@ class RewardPredictor(nn.Module):
 
     def forward(self, x):
         return self.mlp(x)
+    
+class Actor(nn.Module):
+    def __init__(self, inputSize, actionSize):
+        super(Actor, self).__init__()
+        self.mean = sequentialModel1D(inputSize, [256], actionSize)
+        self.logStd = sequentialModel1D(inputSize, [256], actionSize)
+
+    def forward(self, x):
+        if self.is_discrete:
+            mean = self.mean(x)
+            std = torch.exp(self.logStd(x))
+            distribution = distributions.Normal(mean, std)
+            action = distribution.sample()
+            return action, distribution.log_prob(action)
+
+class Critic(nn.Module):
+    def __init__(self, inputSize):
+        super(Critic, self).__init__()
+        self.mlp = sequentialModel1D(inputSize, [256], 1)
+
+    def forward(self, x):
+        return self.mlp(x).squeeze(-1)
