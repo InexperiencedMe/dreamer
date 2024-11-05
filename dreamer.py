@@ -169,6 +169,26 @@ class Dreamer:
 
         return policy_loss.item(), value_loss.item()
 
+    def lambda_return(self, reward, value, pcont, bootstrap, lambda_):
+        next_values = torch.cat([value[1:], bootstrap[None]], 0)
+        inputs = reward + pcont * next_values * (1 - lambda_)
+        returns = self._static_scan(
+            lambda agg, cur0, cur1: cur0 + cur1 * lambda_ * agg,
+            (inputs, pcont),
+            bootstrap,
+        )
+        return returns
+
+    def _static_scan(self, fn, inputs, start):
+        last = start
+        outputs = []
+        for index in reversed(range(inputs[0].shape[0])):
+            inp = [input[index] for input in inputs]
+            last = fn(last, *inp)
+            outputs.append(last)
+        outputs = torch.stack(outputs[::-1], dim=0)
+        return outputs
+
     def reconstructObservations(self, observations, actions):
         encodedObservations = self.convEncoder(observations)
         initialRecurrentState = self.sequenceModel.initializeRecurrentState().to(device)
