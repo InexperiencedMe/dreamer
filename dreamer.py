@@ -111,37 +111,23 @@ class Dreamer:
         actionLogProbabilities = torch.stack(actionLogProbabilities)
         predictedRewards = torch.stack(predictedRewards)
 
-        valueEstimates = self.critic(fullStateRepresentations)
-        lastValue = valueEstimates[-1]  # Bootstrap from last predicted value
+        # Critic Update
+        valueEstimates = self.critic(fullStateRepresentations.detach())
+        lambdaReturns = self.lambdaReturns(predictedRewards, valueEstimates)
+
+        criticLoss = F.mse_loss(valueEstimates, lambdaReturns.detach())
+        self.criticOptimizer.zero_grad()
+        criticLoss.backward()
+        self.criticOptimizer.step()
+
+        # Actor Update
+        valueEstimatesForActor = self.critic(fullStateRepresentations)
+        advantage = lambdaReturns.detach() - valueEstimatesForActor
+
+        actorLoss = -(advantage * actionLogProbabilities).mean()
 
 
 
-        lambda_returns = self.lambda_return(
-            reward=predicted_rewards,
-            value=value_predictions,
-            pcont=predicted_discounts,
-            bootstrap=lastValue,
-            lambda_=self.config.lambda_,
-        )
-        self.returns = lambda_returns[0, :].detach().cpu().numpy()  # Save for logging
-
-        # Update value network (critic)
-        value_targets = lambda_returns.detach()
-        value_loss = F.mse_loss(value_predictions, value_targets)
-
-        self.critic_optimizer.zero_grad()
-        value_loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            self.critic.parameters(), self.config.max_grad_norm
-        )
-        self.critic_optimizer.step()
-
-        # Update policy network (actor)
-        value_predictions_for_policy = self.critic(flattened_hidden_states).view(
-            self.config.imagination_horizon, self.config.batch_size
-        )
-        advantages = lambda_returns.detach() - value_predictions_for_policy
-        policy_loss = -(advantages * action_log_probabilities).mean()
 
         # Add entropy regularization to encourage exploration
         current_action_distribution = self.actor(flattened_hidden_states)
