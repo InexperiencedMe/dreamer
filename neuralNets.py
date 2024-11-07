@@ -106,13 +106,16 @@ class Actor(nn.Module):
         self.mean = sequentialModel1D(inputSize, [256], actionSize)
         self.logStd = sequentialModel1D(inputSize, [256], actionSize)
 
-    def forward(self, x):
-        if self.is_discrete:
-            mean = self.mean(x)
-            std = torch.exp(self.logStd(x))
-            distribution = distributions.Normal(mean, std)
-            action = distribution.sample()
-            return action, distribution.log_prob(action)
+    def forward(self, x, training=True):
+        mean = self.mean(x)
+        std = torch.exp(self.logStd(x))
+        distribution = distributions.Normal(mean, std)
+        action = distribution.sample()
+        if training:
+            return action, distribution.log_prob(action), distribution.entropy().mean()
+        else:
+            return action
+
 
 class Critic(nn.Module):
     def __init__(self, inputSize):
