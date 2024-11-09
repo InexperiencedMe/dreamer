@@ -126,14 +126,14 @@ class Dreamer:
             fullStateRepresentation = nextFullStateRepresentation
 
         fullStateRepresentations = torch.stack(fullStateRepresentations)
-        actionLogProbabilities = torch.stack(actionLogProbabilities)
+        actionLogProbabilities = torch.stack(actionLogProbabilities).sum(-1)
         predictedRewards = torch.stack(predictedRewards)
 
         # Critic Update
         valueEstimates = self.critic(fullStateRepresentations.detach())
         lambdaReturns = self.lambdaReturns(predictedRewards, valueEstimates)
 
-        criticLoss = F.mse_loss(valueEstimates[:-1], lambdaReturns.detach()) # 1 more value estimate as bootstrap
+        criticLoss = F.mse_loss(valueEstimates[:-1], lambdaReturns.detach()) # 1 more value as bootstrap
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
         self.criticOptimizer.step()
@@ -142,8 +142,11 @@ class Dreamer:
         valueEstimatesForActor = self.critic(fullStateRepresentations[:-1]) # here we dont even need to pass it
         advantage = lambdaReturns.detach() - valueEstimatesForActor
         _, _, entropy = self.actor(fullStateRepresentations)
+        # print(f"advantage: {advantage}")
 
-        actorLoss = -(advantage @ actionLogProbabilities).mean()
+        # print(f"lambdaReturns: {lambdaReturns.shape}, valueEstimatesForActor: {valueEstimatesForActor.shape}")
+        # print(f"actionLogprobs: {actionLogProbabilities.shape}")
+        actorLoss = -(advantage * actionLogProbabilities).mean()
         actorLoss += -1e-3*entropy
 
         self.actorOptimizer.zero_grad()
@@ -154,7 +157,7 @@ class Dreamer:
         # for param, targetParam in zip(critic.parameters(), criticTarget.parameters()):
         #     targetParam.data.copy_(self.tau * param.data + (1 - self.tau) * targetParam.data)
 
-        return criticLoss.item(), actorLoss.item()
+        return criticLoss.item(), actorLoss.item(), valueEstimates.detach().mean().cpu().item()
 
     def lambdaReturns(self, rewards, values, gamma=0.99, lambda_=0.95):
         n = len(rewards)
