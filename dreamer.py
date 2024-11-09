@@ -25,6 +25,8 @@ class Dreamer:
         self.actor           = Actor(self.recurrentStateSize + self.representationSize, 3)
         self.critic          = Critic(self.recurrentStateSize + self.representationSize)
 
+        self.recurrentState = self.sequenceModel.initializeRecurrentState()
+
         self.worldModelOptimizer = optim.AdamW(
             list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + 
             list(self.sequenceModel.parameters()) + list(self.priorNet.parameters()) + 
@@ -34,8 +36,20 @@ class Dreamer:
         self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=3e-4)
         self.actorOptimizer = optim.AdamW(self.actor.parameters(), lr=3e-4)
 
+    @torch.no_grad()
+    def act(self, observation, reset=False):
+        if reset:
+            self.recurrentState = self.sequenceModel.initializeRecurrentState()
+
+        encodedObservation = self.convEncoder(observation).view(-1)
+        latentState, _, = self.posteriorNet(torch.cat((self.recurrentState, encodedObservation), -1))
+        fullStateRepresentation = torch.cat((self.recurrentState, latentState), -1)
+        return self.actor(fullStateRepresentation, training=False)
+
+
     def trainWorldModel(self, observations, actions, rewards):
         encodedObservations = self.convEncoder(observations)
+        # TODO: Exchange this local version to the internal recurrent state assigned to the object
         initialRecurrentState = self.sequenceModel.initializeRecurrentState()
         episodeLength = len(actions)
 
