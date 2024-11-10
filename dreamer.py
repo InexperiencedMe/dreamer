@@ -144,10 +144,13 @@ class Dreamer:
         _, _, entropy = self.actor(fullStateRepresentations)
         # print(f"advantage: {advantage}")
 
+        # print(f"lambdaReturns: {lambdaReturns}, valueEstimatesForActor: {valueEstimatesForActor}")
         # print(f"lambdaReturns: {lambdaReturns.shape}, valueEstimatesForActor: {valueEstimatesForActor.shape}")
-        # print(f"actionLogprobs: {actionLogProbabilities.shape}")
+        # print(f"advantage: {advantage}")
+        # print(f"actionLogprobs: {actionLogProbabilities}")
         actorLoss = -(advantage * actionLogProbabilities).mean()
-        actorLoss += -1e-3*entropy
+        # print(f"entropy: {entropy}")
+        # actorLoss += -1e-3*entropy
 
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
