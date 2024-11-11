@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.functional as F
 from utils import *
 from neuralNets import *
+import os
 
 class Dreamer:
     def __init__(self):
@@ -136,6 +137,7 @@ class Dreamer:
         criticLoss = F.mse_loss(valueEstimates[:-1], lambdaReturns.detach()) # 1 more value as bootstrap
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 100)
         self.criticOptimizer.step()
 
         # Actor Update + entropy handling
@@ -154,6 +156,7 @@ class Dreamer:
 
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
         self.actorOptimizer.step()
 
         # Soft update critic
@@ -209,3 +212,46 @@ class Dreamer:
         reconstructedObservation = self.convDecoder(torch.atleast_2d(fullStateRepresentation))
         predictedReward = symexp(self.rewardPredictor(fullStateRepresentation))
         return newRecurrentState, newLatentState, reconstructedObservation, predictedReward
+
+    def saveCheckpoint(self, checkpointPath):
+        if not checkpointPath.endswith('.pth'):
+            checkpointPath += '.pth'
+
+        checkpoint = {
+            'convEncoder': self.convEncoder.state_dict(),
+            'convDecoder': self.convDecoder.state_dict(),
+            'sequenceModel': self.sequenceModel.state_dict(),
+            'priorNet': self.priorNet.state_dict(),
+            'posteriorNet': self.posteriorNet.state_dict(),
+            'rewardPredictor': self.rewardPredictor.state_dict(),
+            'actor': self.actor.state_dict(),
+            'critic': self.critic.state_dict(),
+            'worldModelOptimizer': self.worldModelOptimizer.state_dict(),
+            'criticOptimizer': self.criticOptimizer.state_dict(),
+            'actorOptimizer': self.actorOptimizer.state_dict(),
+            'recurrentState': self.recurrentState
+        }
+        torch.save(checkpoint, checkpointPath)
+        print(f"Saved checkpoint to: {checkpointPath}")
+
+    def loadCheckpoint(self, checkpointPath):
+        if not checkpointPath.endswith('.pth'):
+            checkpointPath += '.pth'
+        if not os.path.exists(checkpointPath):
+            raise FileNotFoundError(f"Checkpoint file not found at: {checkpointPath}")
+        
+        checkpoint = torch.load(checkpointPath)
+        self.convEncoder.load_state_dict(checkpoint['convEncoder'])
+        self.convDecoder.load_state_dict(checkpoint['convDecoder'])
+        self.sequenceModel.load_state_dict(checkpoint['sequenceModel'])
+        self.priorNet.load_state_dict(checkpoint['priorNet'])
+        self.posteriorNet.load_state_dict(checkpoint['posteriorNet'])
+        self.rewardPredictor.load_state_dict(checkpoint['rewardPredictor'])
+        self.actor.load_state_dict(checkpoint['actor'])
+        self.critic.load_state_dict(checkpoint['critic'])
+        self.worldModelOptimizer.load_state_dict(checkpoint['worldModelOptimizer'])
+        self.criticOptimizer.load_state_dict(checkpoint['criticOptimizer'])
+        self.actorOptimizer.load_state_dict(checkpoint['actorOptimizer'])
+        self.recurrentState = checkpoint['recurrentState']
+        print(f"Loaded checkpoint from: {checkpointPath}")
+        
