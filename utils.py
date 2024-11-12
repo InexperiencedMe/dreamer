@@ -11,6 +11,8 @@ from mlagents_envs.side_channel.environment_parameters_channel import Environmen
 import csv
 import pandas as pd
 import matplotlib.pyplot as plt
+from collections import deque, namedtuple
+import random
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def sequentialModel1D(inputSize, hiddenSizes, outputSize, finishWithActivation = False, activationFunction = nn.Tanh):
@@ -142,3 +144,23 @@ def plotMetrics(filename, start_epoch=0, end_epoch=None):
     plt.xlabel("Epoch")
     plt.ylabel("Loss Value")
     plt.show()
+
+class EpisodeBuffer:
+    def __init__(self, size=20):
+        self.size = size
+        self.observations = deque(maxlen=size)
+        self.actions = deque(maxlen=size)
+        self.rewards = deque(maxlen=size)
+
+    def addEpisode(self, observations, actions, rewards):
+        self.observations.append(observations)
+        self.actions.append(actions)
+        self.rewards.append(rewards)
+
+    def sampleEpisode(self):
+        episodeIndex = random.randint(0, len(self) - 1)
+        return self.observations[episodeIndex], self.actions[episodeIndex], self.rewards[episodeIndex]
+    
+    def __len__(self):
+        return len(self.observations)
+    

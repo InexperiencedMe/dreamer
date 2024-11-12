@@ -1,4 +1,3 @@
-- replace endless memory buffer with deque of 100 last episodes, let's say
 - finish saving metrics to csv with first row as column names, then make a nice function plotting it
 - replace actor critic with my SAC
 - other stuff to increase performance
