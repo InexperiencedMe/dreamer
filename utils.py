@@ -111,10 +111,10 @@ def displayImage(imageNdarray):
     plt.axis('off')
     plt.show()
 
-def saveImage(imageNdarray, fileName):
+def saveImage(imageNdarray, filename):
     from PIL import Image
     image = Image.fromarray(imageNdarray)
-    image.save(fileName)
+    image.save(filename)
 
 def symlog(x):
     return torch.sign(x) * torch.log1p(torch.abs(x))
@@ -123,7 +123,7 @@ def symexp(x):
     return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)
 
 def saveLossesToCSV(filename, metrics):
-        with open(filename+".csv", mode='a', newline='') as file:
+        with open(filename + ".csv", mode='a', newline='') as file:
             csv.writer(file).writerow(metrics)
 
 def plotMetrics(filename, start_epoch=0, end_epoch=None):

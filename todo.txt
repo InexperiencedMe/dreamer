@@ -3,3 +3,5 @@
 - other stuff to increase performance
     - Maybe bigger models?
     - How about first training the world model many times, then actor many times and so on, in an interleaved way, like Schmidhuber and Ha
+
+resizeObs to 64x64?
