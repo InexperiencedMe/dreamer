@@ -8,6 +8,9 @@ from torch.distributions.normal import Normal
 from mlagents_envs.environment import UnityEnvironment, ActionTuple
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
 from mlagents_envs.side_channel.environment_parameters_channel import EnvironmentParametersChannel
+import csv
+import pandas as pd
+import matplotlib.pyplot as plt
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def sequentialModel1D(inputSize, hiddenSizes, outputSize, finishWithActivation = False, activationFunction = nn.Tanh):
@@ -116,3 +119,26 @@ def symlog(x):
 
 def symexp(x):
     return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)
+
+def saveLossesToCSV(filename, metrics):
+        with open(filename+".csv", mode='a', newline='') as file:
+            csv.writer(file).writerow(metrics)
+
+def plotMetrics(filename, start_epoch=0, end_epoch=None):
+    data = pd.read_csv(filename, header=None)
+    data.columns = ["epoch", "worldModelLoss", "reconstructionLoss", "rewardPredictionLoss", 
+                    "klLoss", "criticLoss", "actorLoss", "valueEstimate"]
+
+    if end_epoch is None:
+        end_epoch = data["epoch"].max()
+    data = data[(data["epoch"] >= start_epoch) & (data["epoch"] <= end_epoch)]
+
+    plt.figure(figsize=(16, 9))
+    for column in data.columns[1:]:
+        plt.plot(data["epoch"], data[column], label=column)
+    
+    plt.legend()
+    plt.title("Losses Over Epochs")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss Value")
+    plt.show()

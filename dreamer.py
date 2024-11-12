@@ -4,6 +4,7 @@ import torch.functional as F
 from utils import *
 from neuralNets import *
 import os
+import csv
 
 class Dreamer:
     def __init__(self):
@@ -27,11 +28,11 @@ class Dreamer:
         self.critic          = Critic(self.recurrentStateSize + self.representationSize)
 
         self.recurrentState = self.sequenceModel.initializeRecurrentState()
+        self.totalUpdates = 0
 
         self.worldModelOptimizer = optim.AdamW(
-            list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + 
-            list(self.sequenceModel.parameters()) + list(self.priorNet.parameters()) + 
-            list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()), 
+            list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
+            list(self.priorNet.parameters()) + list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()), 
             lr=3e-4)
         
         self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=3e-4)
@@ -218,21 +219,21 @@ class Dreamer:
             checkpointPath += '.pth'
 
         checkpoint = {
-            'convEncoder': self.convEncoder.state_dict(),
-            'convDecoder': self.convDecoder.state_dict(),
-            'sequenceModel': self.sequenceModel.state_dict(),
-            'priorNet': self.priorNet.state_dict(),
-            'posteriorNet': self.posteriorNet.state_dict(),
-            'rewardPredictor': self.rewardPredictor.state_dict(),
-            'actor': self.actor.state_dict(),
-            'critic': self.critic.state_dict(),
-            'worldModelOptimizer': self.worldModelOptimizer.state_dict(),
-            'criticOptimizer': self.criticOptimizer.state_dict(),
-            'actorOptimizer': self.actorOptimizer.state_dict(),
-            'recurrentState': self.recurrentState
+            'convEncoder'           : self.convEncoder.state_dict(),
+            'convDecoder'           : self.convDecoder.state_dict(),
+            'sequenceModel'         : self.sequenceModel.state_dict(),
+            'priorNet'              : self.priorNet.state_dict(),
+            'posteriorNet'          : self.posteriorNet.state_dict(),
+            'rewardPredictor'       : self.rewardPredictor.state_dict(),
+            'actor'                 : self.actor.state_dict(),
+            'critic'                : self.critic.state_dict(),
+            'worldModelOptimizer'   : self.worldModelOptimizer.state_dict(),
+            'criticOptimizer'       : self.criticOptimizer.state_dict(),
+            'actorOptimizer'        : self.actorOptimizer.state_dict(),
+            'recurrentState'        : self.recurrentState,
+            'totalUpdates'          : self.totalUpdates
         }
         torch.save(checkpoint, checkpointPath)
-        print(f"Saved checkpoint to: {checkpointPath}")
 
     def loadCheckpoint(self, checkpointPath):
         if not checkpointPath.endswith('.pth'):
@@ -241,17 +242,17 @@ class Dreamer:
             raise FileNotFoundError(f"Checkpoint file not found at: {checkpointPath}")
         
         checkpoint = torch.load(checkpointPath)
-        self.convEncoder.load_state_dict(checkpoint['convEncoder'])
-        self.convDecoder.load_state_dict(checkpoint['convDecoder'])
-        self.sequenceModel.load_state_dict(checkpoint['sequenceModel'])
-        self.priorNet.load_state_dict(checkpoint['priorNet'])
-        self.posteriorNet.load_state_dict(checkpoint['posteriorNet'])
-        self.rewardPredictor.load_state_dict(checkpoint['rewardPredictor'])
-        self.actor.load_state_dict(checkpoint['actor'])
-        self.critic.load_state_dict(checkpoint['critic'])
-        self.worldModelOptimizer.load_state_dict(checkpoint['worldModelOptimizer'])
-        self.criticOptimizer.load_state_dict(checkpoint['criticOptimizer'])
-        self.actorOptimizer.load_state_dict(checkpoint['actorOptimizer'])
-        self.recurrentState = checkpoint['recurrentState']
+        self.convEncoder.load_state_dict(         checkpoint['convEncoder'])
+        self.convDecoder.load_state_dict(         checkpoint['convDecoder'])
+        self.sequenceModel.load_state_dict(       checkpoint['sequenceModel'])
+        self.priorNet.load_state_dict(            checkpoint['priorNet'])
+        self.posteriorNet.load_state_dict(        checkpoint['posteriorNet'])
+        self.rewardPredictor.load_state_dict(     checkpoint['rewardPredictor'])
+        self.actor.load_state_dict(               checkpoint['actor'])
+        self.critic.load_state_dict(              checkpoint['critic'])
+        self.worldModelOptimizer.load_state_dict( checkpoint['worldModelOptimizer'])
+        self.criticOptimizer.load_state_dict(     checkpoint['criticOptimizer'])
+        self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])
+        self.recurrentState =                     checkpoint['recurrentState']
+        self.totalUpdates =                       checkpoint['totalUpdates']
         print(f"Loaded checkpoint from: {checkpointPath}")
-        
