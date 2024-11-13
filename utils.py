@@ -9,10 +9,13 @@ from mlagents_envs.environment import UnityEnvironment, ActionTuple
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
 from mlagents_envs.side_channel.environment_parameters_channel import EnvironmentParametersChannel
 import csv
-import pandas as pd
-import matplotlib.pyplot as plt
 from collections import deque, namedtuple
 import random
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.graph_objects as pgo
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def sequentialModel1D(inputSize, hiddenSizes, outputSize, finishWithActivation = False, activationFunction = nn.Tanh):
@@ -123,27 +126,48 @@ def symexp(x):
     return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)
 
 def saveLossesToCSV(filename, metrics):
-        with open(filename + ".csv", mode='a', newline='') as file:
-            csv.writer(file).writerow(metrics)
+    with open(filename + ".csv", mode='a', newline='') as file:
+        writer = csv.writer(file)
+        if not os.path.isfile(filename + ".csv"):
+            writer.writerow(metrics.keys())
+        writer.writerow(metrics.values())
 
-def plotMetrics(filename, start_epoch=0, end_epoch=None):
-    data = pd.read_csv(filename, header=None)
-    data.columns = ["epoch", "worldModelLoss", "reconstructionLoss", "rewardPredictionLoss", 
-                    "klLoss", "criticLoss", "actorLoss", "valueEstimate"]
+def plotMetrics(filename, title="", save=False, savePath="metricsPlot", window=10, show=True):
+    if not filename.endswith(".csv"):
+        filename += ".csv"
 
-    if end_epoch is None:
-        end_epoch = data["epoch"].max()
-    data = data[(data["epoch"] >= start_epoch) & (data["epoch"] <= end_epoch)]
-
-    plt.figure(figsize=(16, 9))
-    for column in data.columns[1:]:
-        plt.plot(data["epoch"], data[column], label=column)
+    data = pd.read_csv(filename)
+    fig = pgo.Figure()
     
-    plt.legend()
-    plt.title("Losses Over Epochs")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss Value")
-    plt.show()
+    for column in data.columns[1:]:  # Skip 'i' column
+        fig.add_trace(pgo.Scatter(
+            x=data["i"], y=data[column], mode='lines', name=f"{column} (original)",
+            line=dict(color='gray', width=1, dash='dot'), opacity=0.5, visible='legendonly'))
+        smoothed_data = data[column].rolling(window=window, min_periods=1).mean()
+        fig.add_trace(pgo.Scatter(x=data["i"], y=smoothed_data, mode='lines', name=f"{column} (smoothed)", line=dict(width=2)))
+
+    fig.update_layout(
+        title=f"{title}",
+        title_x=0.5,
+        xaxis_title="Iterations (i)",
+        yaxis_title="Value",
+        template="plotly_dark",
+        height=1080,
+        width=1920,
+        legend=dict(
+            x=0.98, y=0.98,
+            xanchor="right", yanchor="top",
+            bgcolor="rgba(0,0,0,0.5)",
+            bordercolor="White",
+            borderwidth=1))
+
+    if save:
+        if not savePath.endswith(".html"):
+            savePath += ".html"
+        fig.write_html(savePath)
+
+    if show:
+        fig.show()
 
 class EpisodeBuffer:
     def __init__(self, size=20):
