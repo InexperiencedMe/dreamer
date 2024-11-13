@@ -1,4 +1,4 @@
-- finish saving metrics to csv with first row as column names, then make a nice function plotting it
+- fix the world model loss scaling issue to prioritize reconstruction
 - replace actor critic with my SAC
 - other stuff to increase performance
     - Maybe bigger models?
