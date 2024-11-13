@@ -126,13 +126,14 @@ def symexp(x):
     return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)
 
 def saveLossesToCSV(filename, metrics):
+    fileAlreadyExists = os.path.isfile(filename + ".csv")
     with open(filename + ".csv", mode='a', newline='') as file:
         writer = csv.writer(file)
-        if not os.path.isfile(filename + ".csv"):
+        if not fileAlreadyExists:
             writer.writerow(metrics.keys())
         writer.writerow(metrics.values())
 
-def plotMetrics(filename, title="", save=False, savePath="metricsPlot", window=10, show=True):
+def plotMetrics(filename, title="", show=True, save=False, savePath="metricsPlot", window=10):
     if not filename.endswith(".csv"):
         filename += ".csv"
 
