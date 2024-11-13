@@ -2,6 +2,7 @@
 - replace actor critic with my SAC
 - other stuff to increase performance
     - Maybe bigger models?
-    - How about first training the world model many times, then actor many times and so on, in an interleaved way, like Schmidhuber and Ha
+    - How about first training the world model many times, then actor many times and so on, in an interleaved way, like Schmidhuber and Ha.
+        - Consider this: gather 10 episodes, update world model 10 times, update actor critic 10 times
 
 resizeObs to 64x64?

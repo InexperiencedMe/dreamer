@@ -16,7 +16,12 @@ class Dreamer:
         self.compressedObservationsSize = 512
         self.obsShape = (3, 96, 96)
         self.imaginationHorizon = 16
-        self.tau = 0.05
+        self.betaPrior = 10
+        self.betaPosterior = 1
+        self.betaReconstruction = 20
+        self.betaReward = 1
+        self.betaKL = 1
+        # self.tau = 0.05
 
         self.convEncoder     = ConvEncoder(self.obsShape, self.compressedObservationsSize).to(device)
         self.convDecoder     = ConvDecoder(self.representationSize + self.recurrentStateSize, self.obsShape).to(device)
@@ -33,10 +38,10 @@ class Dreamer:
         self.worldModelOptimizer = optim.AdamW(
             list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
             list(self.priorNet.parameters()) + list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()), 
-            lr=3e-4)
+            lr=1e-3)
         
-        self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=3e-4)
-        self.actorOptimizer = optim.AdamW(self.actor.parameters(), lr=3e-4)
+        self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=1e-3)
+        self.actorOptimizer = optim.AdamW(self.actor.parameters(), lr=1e-3)
 
     @torch.no_grad()
     def act(self, observation, reset=False):
@@ -90,9 +95,9 @@ class Dreamer:
 
         priorLoss = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution).mean()
         posteriorLoss = torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG).mean()
-        klLoss = priorLoss + posteriorLoss # We add it because they have the same value, no need to distinguish it
+        klLoss = self.betaPrior*priorLoss + self.betaPosterior*posteriorLoss # We add it because they have the same value, no need to distinguish it
 
-        worldModelLoss = reconstructionLoss + rewardPredictorLoss + klLoss
+        worldModelLoss =  self.betaReconstruction*reconstructionLoss + self.betaReward*rewardPredictorLoss + self.betaKL*klLoss
 
         self.worldModelOptimizer.zero_grad()
         worldModelLoss.backward()
