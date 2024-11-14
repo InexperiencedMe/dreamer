@@ -99,20 +99,34 @@ class RewardPredictor(nn.Module):
 
     def forward(self, x):
         return self.mlp(x)
-    
+
+LOG_STD_MAX = 2
+LOG_STD_MIN = -5
 class Actor(nn.Module):
-    def __init__(self, inputSize, actionSize):
+    def __init__(self, inputSize, actionSize, actionLow=[-1], actionHigh=[1]):
         super(Actor, self).__init__()
-        self.mean = sequentialModel1D(inputSize, [256], actionSize)
-        self.logStd = sequentialModel1D(inputSize, [256], actionSize)
+        self.preprocess = sequentialModel1D(inputSize, [256, 256], 256)
+        self.mean = sequentialModel1D(256, [256], actionSize)
+        self.logStd = sequentialModel1D(256, [256], actionSize)
+        self.register_buffer("actionScale", (torch.tensor(actionHigh, device=device) + torch.tensor(actionLow, device=device) / 2.0))
+        self.register_buffer("actionBias", (torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device) / 2.0))
 
     def forward(self, x, training=True):
+        x = self.preprocess(x)
         mean = self.mean(x)
-        std = torch.exp(self.logStd(x))
+        logStd = torch.tanh(self.logStd(x))
+        logStd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (logStd + 1)
+        std = torch.exp(logStd)
         distribution = distributions.Normal(mean, std)
-        action = distribution.sample()
+        sample = distribution.rsample()
+        sampleTanh = torch.tanh(sample)
+        action = sampleTanh*self.actionScale + self.actionBias
+
         if training:
-            return action, distribution.log_prob(action), distribution.entropy().mean()
+            logProbabilities = distribution.log_prob(sample)
+            logProbabilities -= torch.log(self.actionScale * (1 - sampleTanh.pow(2)) + 1e-6)
+            logProbabilities = logProbabilities.sum(-1, keepdim=True)
+            return action, logProbabilities, distribution.entropy().mean()
         else:
             return action
 
@@ -120,7 +134,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, inputSize):
         super(Critic, self).__init__()
-        self.mlp = sequentialModel1D(inputSize, [256], 1)
+        self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
 
     def forward(self, x):
         return self.mlp(x).squeeze(-1)

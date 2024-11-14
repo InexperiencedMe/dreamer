@@ -21,6 +21,7 @@ class Dreamer:
         self.betaReconstruction = 20
         self.betaReward = 1
         self.betaKL = 1
+        self.entropyScale = 0.001
         # self.tau = 0.05
 
         self.convEncoder     = ConvEncoder(self.obsShape, self.compressedObservationsSize).to(device)
@@ -29,7 +30,7 @@ class Dreamer:
         self.priorNet        = PriorNet(self.recurrentStateSize, self.representationLength, self.representationClasses).to(device)
         self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationsSize, self.representationLength, self.representationClasses).to(device)
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
-        self.actor           = Actor(self.recurrentStateSize + self.representationSize, 3)
+        self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize, actionLow=[-1, 0, 0], actionHigh=[1, 1, 1])
         self.critic          = Critic(self.recurrentStateSize + self.representationSize)
 
         self.recurrentState = self.sequenceModel.initializeRecurrentState()
@@ -149,14 +150,16 @@ class Dreamer:
         # Actor Update + entropy handling
         valueEstimatesForActor = self.critic(fullStateRepresentations[:-1]) # here we dont even need to pass it
         advantage = lambdaReturns.detach() - valueEstimatesForActor
-        _, _, entropy = self.actor(fullStateRepresentations)
+        actorLoss = -(advantage * actionLogProbabilities).mean()
         # print(f"advantage: {advantage}")
+
+        _, _, entropy = self.actor(fullStateRepresentations)
+        actorLoss -= self.entropyScale * entropy
 
         # print(f"lambdaReturns: {lambdaReturns}, valueEstimatesForActor: {valueEstimatesForActor}")
         # print(f"lambdaReturns: {lambdaReturns.shape}, valueEstimatesForActor: {valueEstimatesForActor.shape}")
         # print(f"advantage: {advantage}")
         # print(f"actionLogprobs: {actionLogProbabilities}")
-        actorLoss = -(advantage * actionLogProbabilities).mean()
         # print(f"entropy: {entropy}")
         # actorLoss += -1e-3*entropy
 
