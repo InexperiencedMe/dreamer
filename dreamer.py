@@ -151,26 +151,14 @@ class Dreamer:
         valueEstimatesForActor = self.critic(fullStateRepresentations[:-1]) # here we dont even need to pass it
         advantage = lambdaReturns.detach() - valueEstimatesForActor
         actorLoss = -(advantage * actionLogProbabilities).mean()
-        # print(f"advantage: {advantage}")
 
         _, _, entropy = self.actor(fullStateRepresentations)
         actorLoss -= self.entropyScale * entropy
-
-        # print(f"lambdaReturns: {lambdaReturns}, valueEstimatesForActor: {valueEstimatesForActor}")
-        # print(f"lambdaReturns: {lambdaReturns.shape}, valueEstimatesForActor: {valueEstimatesForActor.shape}")
-        # print(f"advantage: {advantage}")
-        # print(f"actionLogprobs: {actionLogProbabilities}")
-        # print(f"entropy: {entropy}")
-        # actorLoss += -1e-3*entropy
 
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
         self.actorOptimizer.step()
-
-        # Soft update critic
-        # for param, targetParam in zip(critic.parameters(), criticTarget.parameters()):
-        #     targetParam.data.copy_(self.tau * param.data + (1 - self.tau) * targetParam.data)
 
         return criticLoss.item(), actorLoss.item(), valueEstimates.detach().mean().cpu().item()
 
