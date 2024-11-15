@@ -16,6 +16,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as pgo
+import imageio.v2 as imageio
+import gymnasium as gym
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def sequentialModel1D(inputSize, hiddenSizes, outputSize, finishWithActivation = False, activationFunction = nn.Tanh):
@@ -186,6 +188,40 @@ class EpisodeBuffer:
         episodeIndex = random.randint(0, len(self) - 1)
         return self.observations[episodeIndex], self.actions[episodeIndex], self.rewards[episodeIndex]
     
+    def getNewestEpisode(self):
+        episodeIndex = len(self) - 1
+        return self.observations[episodeIndex], self.actions[episodeIndex], self.rewards[episodeIndex]
+    
     def __len__(self):
         return len(self.observations)
     
+def saveVideoFrom4DTensor(observations, filename, fps=30):
+    if not filename.lower().endswith(".mp4"):
+        filename += ".mp4"
+    with imageio.get_writer(filename, fps=fps) as video:
+        for observation in observations:
+            frame = (observation.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+            video.append_data(frame)
+
+def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30):
+    env = gym.make(envName, render_mode="rgb_array")
+    observation, _ = env.reset()
+    observation = torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).to(device) / 255.0
+    done, frameCount, totalReward = False, 0, 0
+    frames = []
+
+    while not done and frameCount < frameLimit:
+        action = actor.act(observation, reset=(frameCount == 0))
+        observation, reward, terminated, truncated, _ = env.step(action.cpu().numpy())
+        observation = torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).to(device) / 255.0
+        done = terminated or truncated
+        totalReward += reward
+        frameCount += 1
+        frames.append(env.render())
+
+    env.close()
+    final_filename = f"{filename}_reward_{int(totalReward)}.mp4"
+    
+    with imageio.get_writer(final_filename, fps=fps) as video:
+        for frame in frames:
+            video.append_data(frame)
