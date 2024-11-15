@@ -227,10 +227,10 @@ def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30):
             video.append_data(frame)
 
 class Moments(nn.Module):
-    def __init__( self, decay = 0.99, max_ = 1e8, percentileLow = 0.05, percentileHigh = 0.95):
+    def __init__( self, decay = 0.99, min_=1 , percentileLow = 0.05, percentileHigh = 0.95):
         super().__init__()
         self._decay = decay
-        self._max = torch.tensor(max_)
+        self._min = torch.tensor(min_)
         self._percentileLow = percentileLow
         self._percentileHigh = percentileHigh
         self.register_buffer("low", torch.zeros((), dtype=torch.float32, device=device))
@@ -242,6 +242,6 @@ class Moments(nn.Module):
         high = torch.quantile(x, self._percentileHigh)
         self.low = self._decay*self.low + (1 - self._decay)*low
         self.high = self._decay*self.high + (1 - self._decay)*high
-        inverseScale = torch.max(1 / self._max, self.high - self.low)
+        inverseScale = torch.max(self._min, self.high - self.low)
         return self.low.detach(), inverseScale.detach()
     

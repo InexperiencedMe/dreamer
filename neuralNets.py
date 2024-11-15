@@ -119,22 +119,26 @@ class Actor(nn.Module):
         print(f"\n### IN ACTOR")
         print(f"actor raw output:\nmean {mean} of shape {mean.shape}\nlogStd {logStd} of shape {logStd.shape}")
         logStd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (logStd + 1)
-        print(f"logStd after enforcing bounds {logStd} of shape {logStd.shape}")
+        # print(f"logStd after enforcing bounds {logStd} of shape {logStd.shape}")
         std = torch.exp(logStd)
-        print(f"std {std} of shape {std.shape}")
+        # print(f"std {std} of shape {std.shape}")
         distribution = distributions.Normal(mean, std)
         sample = distribution.rsample()
-        print(f"sample {sample} of shape {sample.shape}")
+        # print(f"sample {sample} of shape {sample.shape}")
         sampleTanh = torch.tanh(sample)
-        print(f"sampleTanh {sampleTanh} of shape {sampleTanh.shape}")
+        # print(f"sampleTanh {sampleTanh} of shape {sampleTanh.shape}")
         action = sampleTanh*self.actionScale + self.actionBias
-        print(f"action {action} of shape {action.shape}")
-        print(f"because action scale is {self.actionScale} and actionBias is {self.actionBias}")
+        # print(f"action {action} of shape {action.shape}")
+        # print(f"because action scale is {self.actionScale} and actionBias is {self.actionBias}")
 
         if training:
             logProbabilities = distribution.log_prob(sample)
+            # print(f"logProbabilities raw: {logProbabilities} of shape {logProbabilities}")
             logProbabilities -= torch.log(self.actionScale * (1 - sampleTanh.pow(2)) + 1e-6)
+            # print(f"logProbabilities after enforcing scale: {logProbabilities} of shape {logProbabilities}")
             logProbabilities = logProbabilities.sum(-1, keepdim=True)
+            # print(f"logProbabilities after summing: {logProbabilities} of shape {logProbabilities}")
+
             return action, logProbabilities, distribution.entropy().mean()
         else:
             return action
