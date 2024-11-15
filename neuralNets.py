@@ -108,19 +108,28 @@ class Actor(nn.Module):
         self.preprocess = sequentialModel1D(inputSize, [256, 256], 256)
         self.mean = sequentialModel1D(256, [256], actionSize)
         self.logStd = sequentialModel1D(256, [256], actionSize)
-        self.register_buffer("actionScale", (torch.tensor(actionHigh, device=device) + torch.tensor(actionLow, device=device) / 2.0))
-        self.register_buffer("actionBias", (torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device) / 2.0))
+        self.register_buffer("actionScale", ((torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device)) / 2.0))
+        self.register_buffer("actionBias", ((torch.tensor(actionHigh, device=device) + torch.tensor(actionLow, device=device)) / 2.0))
+
 
     def forward(self, x, training=True):
         x = self.preprocess(x)
         mean = self.mean(x)
         logStd = torch.tanh(self.logStd(x))
+        print(f"\n### IN ACTOR")
+        print(f"actor raw output:\nmean {mean} of shape {mean.shape}\nlogStd {logStd} of shape {logStd.shape}")
         logStd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (logStd + 1)
+        print(f"logStd after enforcing bounds {logStd} of shape {logStd.shape}")
         std = torch.exp(logStd)
+        print(f"std {std} of shape {std.shape}")
         distribution = distributions.Normal(mean, std)
         sample = distribution.rsample()
+        print(f"sample {sample} of shape {sample.shape}")
         sampleTanh = torch.tanh(sample)
+        print(f"sampleTanh {sampleTanh} of shape {sampleTanh.shape}")
         action = sampleTanh*self.actionScale + self.actionBias
+        print(f"action {action} of shape {action.shape}")
+        print(f"because action scale is {self.actionScale} and actionBias is {self.actionBias}")
 
         if training:
             logProbabilities = distribution.log_prob(sample)

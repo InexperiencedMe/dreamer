@@ -35,6 +35,7 @@ class Dreamer:
 
         self.recurrentState = self.sequenceModel.initializeRecurrentState()
         self.totalUpdates = 0
+        self.valueMoments = Moments()
 
         self.worldModelOptimizer = optim.AdamW(
             list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
@@ -139,21 +140,60 @@ class Dreamer:
 
         # Critic Update
         valueEstimates = self.critic(fullStateRepresentations.detach())
-        lambdaReturns = self.lambdaReturns(predictedRewards, valueEstimates)
+        lambdaValues = self.lambdaValues(predictedRewards, valueEstimates)
 
-        criticLoss = F.mse_loss(valueEstimates[:-1], lambdaReturns.detach()) # 1 more value as bootstrap
+        criticLoss = F.mse_loss(valueEstimates[:-1], lambdaValues.detach()) # 1 more value as bootstrap
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 100)
         self.criticOptimizer.step()
 
-        # Actor Update + entropy handling
-        valueEstimatesForActor = self.critic(fullStateRepresentations[:-1]) # here we dont even need to pass it
-        advantage = lambdaReturns.detach() - valueEstimatesForActor
-        actorLoss = -(advantage * actionLogProbabilities).mean()
+        # Calculate value estimates from the critic for all but the last state representation
+        valueEstimatesForActor = self.critic(fullStateRepresentations[:-1]) 
+        # Note: `fullStateRepresentations[:-1]` means you exclude the final state from the computation.
 
+        # Compute offset and inverse scale for normalizing lambda values
+        offset, inverseScale = self.valueMoments(lambdaValues.detach()) 
+        # offset: Mean (or some central value) of the lambda values
+        # inverseScale: A scaling factor (likely reciprocal of the standard deviation) for normalization
+
+        # Normalize lambda values using offset and inverse scale
+        normalizedLambdaValues = (lambdaValues - offset) / inverseScale
+        # Inspect the normalized lambda values
+        print(f"\n### IN TRAINING")
+        print("Unormalized Lambda Values:", lambdaValues)
+        print("Normalized Lambda Values:", normalizedLambdaValues)
+
+        # Normalize value estimates using the same offset and scale
+        normalizedValueEstimates = (valueEstimatesForActor - offset) / inverseScale
+        # Inspect normalized value estimates
+        print("Normalized Value Estimates:", valueEstimatesForActor)
+        print("Normalized Value Estimates:", normalizedValueEstimates)
+
+        # Compute advantage as the difference between normalized lambda values and value estimates
+        advantage = normalizedLambdaValues.detach() - normalizedValueEstimates
+        # Inspect advantage
+        print("Advantage:", advantage)
+
+        # Compute cumulative product of discounts (gamma = 0.99) and normalize
+        discounts = torch.cumprod(torch.full((len(advantage),), 0.99, device=device), dim=0) / 0.99
+        # Inspect the discount factors
+        print("Discounts:", discounts)
+
+        # Get entropy from the actor. It seems your actor returns three outputs, and entropy is the third.
         _, _, entropy = self.actor(fullStateRepresentations)
-        actorLoss -= self.entropyScale * entropy
+        # Inspect entropy
+        print("Entropy:", entropy)
+
+        # Compute the actor loss, combining advantage, entropy, and discounts
+        actorLoss = -torch.mean(discounts * (advantage + self.entropyScale * entropy))
+        # Inspect the actor loss
+        print("Actor Loss:", actorLoss)
+
+        # Optionally, also inspect offset and inverse scale for better understanding
+        print("Offset:", offset)
+        print("Inverse Scale:", inverseScale)
+
 
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
@@ -162,7 +202,7 @@ class Dreamer:
 
         return criticLoss.item(), actorLoss.item(), valueEstimates.detach().mean().cpu().item()
 
-    def lambdaReturns(self, rewards, values, gamma=0.99, lambda_=0.95):
+    def lambdaValues(self, rewards, values, gamma=0.99, lambda_=0.95):
         n = len(rewards)
         returns = torch.zeros(n, device=device)
         bootstrap = values[-1]
