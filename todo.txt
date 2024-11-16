@@ -1,4 +1,4 @@
-- replace actor critic with my SAC
+- replace old actor with the cleanrl style one with action bounds
 - other stuff to increase performance
     - Maybe bigger models?
     - How about first training the world model many times, then actor many times and so on, in an interleaved way, like Schmidhuber and Ha.
