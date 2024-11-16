@@ -227,7 +227,7 @@ def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30):
             video.append_data(frame)
 
 class Moments(nn.Module):
-    def __init__( self, decay = 0.99, min_=1 , percentileLow = 0.05, percentileHigh = 0.95):
+    def __init__( self, decay = 0.99, min_=1, percentileLow = 0.05, percentileHigh = 0.95):
         super().__init__()
         self._decay = decay
         self._min = torch.tensor(min_)

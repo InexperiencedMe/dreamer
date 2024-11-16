@@ -30,7 +30,7 @@ class Dreamer:
         self.priorNet        = PriorNet(self.recurrentStateSize, self.representationLength, self.representationClasses).to(device)
         self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationsSize, self.representationLength, self.representationClasses).to(device)
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
-        self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize, actionLow=[-1, 0, 0], actionHigh=[1, 1, 1])
+        self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize)
         self.critic          = Critic(self.recurrentStateSize + self.representationSize)
 
         self.recurrentState = self.sequenceModel.initializeRecurrentState()
@@ -154,8 +154,8 @@ class Dreamer:
         normalizedValueEstimates = (valueEstimatesForActor - offset) / inverseScale
         advantage = normalizedLambdaValues.detach() - normalizedValueEstimates
         discounts = torch.cumprod(torch.full((len(advantage),), 0.99, device=device), dim=0) / 0.99
-        _, _, entropy = self.actor(fullStateRepresentations)
-        actorLoss = -torch.mean(discounts * (advantage + self.entropyScale * entropy))
+        _, _, entropy = self.actor(fullStateRepresentations[:-1])
+        actorLoss = -torch.mean(discounts * (advantage*actionLogProbabilities + self.entropyScale*entropy))
         print(f"Actor loss is {actorLoss} because we -mean the discounted (advantages {advantage} plus entropy {self.entropyScale*entropy}")
 
         self.actorOptimizer.zero_grad()

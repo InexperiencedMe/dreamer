@@ -100,49 +100,23 @@ class RewardPredictor(nn.Module):
     def forward(self, x):
         return self.mlp(x)
 
-LOG_STD_MAX = 2
-LOG_STD_MIN = -5
 class Actor(nn.Module):
-    def __init__(self, inputSize, actionSize, actionLow=[-1], actionHigh=[1]):
+    def __init__(self, inputSize, actionSize):
         super(Actor, self).__init__()
-        self.preprocess = sequentialModel1D(inputSize, [256, 256], 256)
-        self.mean = sequentialModel1D(256, [256], actionSize)
-        self.logStd = sequentialModel1D(256, [256], actionSize)
-        self.register_buffer("actionScale", ((torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device)) / 2.0))
-        self.register_buffer("actionBias", ((torch.tensor(actionHigh, device=device) + torch.tensor(actionLow, device=device)) / 2.0))
-
+        self.mean = sequentialModel1D(inputSize, [256], actionSize)
+        self.logStd = sequentialModel1D(inputSize, [256], actionSize)
 
     def forward(self, x, training=True):
-        x = self.preprocess(x)
         mean = self.mean(x)
-        logStd = torch.tanh(self.logStd(x))
-        print(f"\n### IN ACTOR")
-        print(f"actor raw output:\nmean {mean} of shape {mean.shape}\nlogStd {logStd} of shape {logStd.shape}")
-        logStd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (logStd + 1)
-        # print(f"logStd after enforcing bounds {logStd} of shape {logStd.shape}")
-        std = torch.exp(logStd)
-        # print(f"std {std} of shape {std.shape}")
+        std = torch.exp(self.logStd(x))
+        print(f"actor raw output:\nmean {mean} of shape {mean.shape}\std {std} of shape {std.shape}")
         distribution = distributions.Normal(mean, std)
-        sample = distribution.rsample()
-        # print(f"sample {sample} of shape {sample.shape}")
-        sampleTanh = torch.tanh(sample)
-        # print(f"sampleTanh {sampleTanh} of shape {sampleTanh.shape}")
-        action = sampleTanh*self.actionScale + self.actionBias
-        # print(f"action {action} of shape {action.shape}")
-        # print(f"because action scale is {self.actionScale} and actionBias is {self.actionBias}")
-
+        action = distribution.sample()
         if training:
-            logProbabilities = distribution.log_prob(sample)
-            # print(f"logProbabilities raw: {logProbabilities} of shape {logProbabilities}")
-            logProbabilities -= torch.log(self.actionScale * (1 - sampleTanh.pow(2)) + 1e-6)
-            # print(f"logProbabilities after enforcing scale: {logProbabilities} of shape {logProbabilities}")
-            logProbabilities = logProbabilities.sum(-1, keepdim=True)
-            # print(f"logProbabilities after summing: {logProbabilities} of shape {logProbabilities}")
-
-            return action, logProbabilities, distribution.entropy().mean()
+            print(f"Will be returning entropy of shape: {distribution.entropy().sum(-1).shape} instead of {distribution.entropy().mean().shape} like before")
+            return action, distribution.log_prob(action), distribution.entropy().sum(-1)
         else:
             return action
-
 
 class Critic(nn.Module):
     def __init__(self, inputSize):
