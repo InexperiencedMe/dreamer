@@ -109,11 +109,11 @@ class Actor(nn.Module):
     def forward(self, x, training=True):
         mean = self.mean(x)
         std = torch.exp(self.logStd(x))
-        print(f"actor raw output:\nmean {mean} of shape {mean.shape}\std {std} of shape {std.shape}")
+        # print(f"actor raw output:\nmean {mean} of shape {mean.shape}\std {std} of shape {std.shape}")
         distribution = distributions.Normal(mean, std)
         action = distribution.sample()
         if training:
-            print(f"Will be returning entropy of shape: {distribution.entropy().sum(-1).shape} instead of {distribution.entropy().mean().shape} like before")
+            # print(f"Will be returning entropy of shape: {distribution.entropy().sum(-1).shape} instead of {distribution.entropy().mean().shape} like before")
             return action, distribution.log_prob(action), distribution.entropy().sum(-1)
         else:
             return action

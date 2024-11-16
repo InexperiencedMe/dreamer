@@ -156,7 +156,7 @@ class Dreamer:
         discounts = torch.cumprod(torch.full((len(advantage),), 0.99, device=device), dim=0) / 0.99
         _, _, entropy = self.actor(fullStateRepresentations[:-1])
         actorLoss = -torch.mean(discounts * (advantage*actionLogProbabilities + self.entropyScale*entropy))
-        print(f"Actor loss is {actorLoss} because we -mean the discounted (advantages {advantage} plus entropy {self.entropyScale*entropy}")
+        # print(f"Actor loss is {actorLoss} because we -mean the discounted (advantages {advantage} plus entropy {self.entropyScale*entropy}")
 
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
