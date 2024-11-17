@@ -18,6 +18,7 @@ import seaborn as sns
 import plotly.graph_objects as pgo
 import imageio.v2 as imageio
 import gymnasium as gym
+import cv2 as cv
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def sequentialModel1D(inputSize, hiddenSizes, outputSize, finishWithActivation = False, activationFunction = nn.Tanh):
@@ -200,10 +201,11 @@ def saveVideoFrom4DTensor(observations, filename, fps=30):
         filename += ".mp4"
     with imageio.get_writer(filename, fps=fps) as video:
         for observation in observations:
-            frame = (observation.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+            frame = (observation.permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8)
             video.append_data(frame)
 
-def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30):
+
+def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30, macroBlockSize=16):
     env = gym.make(envName, render_mode="rgb_array")
     observation, _ = env.reset()
     observation = torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).to(device) / 255.0
@@ -216,8 +218,14 @@ def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30):
         observation = torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).to(device) / 255.0
         done = terminated or truncated
         totalReward += reward
+        frame = env.render()
         frameCount += 1
-        frames.append(env.render())
+
+        # Reisizng to get rid of the warning with macroBlockSize
+        targetHeight = (frame.shape[0] + macroBlockSize - 1) // macroBlockSize * macroBlockSize
+        targetWidth = (frame.shape[1] + macroBlockSize - 1) // macroBlockSize * macroBlockSize
+        resizedFrame = cv.resize(frame, (targetWidth, targetHeight), interpolation=cv.INTER_LINEAR)
+        frames.append(resizedFrame)
 
     env.close()
     final_filename = f"{filename}_reward_{int(totalReward)}.mp4"

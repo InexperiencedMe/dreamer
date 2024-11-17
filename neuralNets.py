@@ -118,6 +118,37 @@ class Actor(nn.Module):
         else:
             return action
 
+LOG_STD_MAX = 2
+LOG_STD_MIN = -5
+class ActorCleanRLStyle(nn.Module):
+    def __init__(self, inputSize, actionSize, actionLow=[-1], actionHigh=[1]):
+        super(ActorCleanRLStyle, self).__init__()
+        self.preprocess = sequentialModel1D(inputSize, [256, 256], 256)
+        self.mean = sequentialModel1D(256, [256], actionSize)
+        self.logStd = sequentialModel1D(256, [256], actionSize)
+        self.register_buffer("actionScale", ((torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device)) / 2.0))
+        self.register_buffer("actionBias", ((torch.tensor(actionHigh, device=device) + torch.tensor(actionLow, device=device)) / 2.0))
+
+
+    def forward(self, x, training=True):
+        x = self.preprocess(x)
+        mean = self.mean(x)
+        logStd = torch.tanh(self.logStd(x))
+        logStd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (logStd + 1)
+        std = torch.exp(logStd)
+        distribution = distributions.Normal(mean, std)
+        sample = distribution.rsample()
+        sampleTanh = torch.tanh(sample)
+        action = sampleTanh*self.actionScale + self.actionBias
+
+        if training:
+            logProbabilities = distribution.log_prob(sample)
+            logProbabilities -= torch.log(self.actionScale * (1 - sampleTanh.pow(2)) + 1e-6)
+            logProbabilities = logProbabilities.sum(-1, keepdim=True)
+            return action, logProbabilities, distribution.entropy().sum(-1)
+        else:
+            return action
+
 class Critic(nn.Module):
     def __init__(self, inputSize):
         super(Critic, self).__init__()
