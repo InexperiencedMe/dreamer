@@ -98,7 +98,7 @@ class RewardPredictor(nn.Module):
         self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
 
     def forward(self, x):
-        return self.mlp(x)
+        return self.mlp(x).squeeze(-1)
 
 class Actor(nn.Module):
     def __init__(self, inputSize, actionSize):

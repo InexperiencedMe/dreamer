@@ -30,8 +30,8 @@ class Dreamer:
         self.priorNet        = PriorNet(self.recurrentStateSize, self.representationLength, self.representationClasses).to(device)
         self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationsSize, self.representationLength, self.representationClasses).to(device)
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
-        # self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize)
-        self.actor           = ActorCleanRLStyle(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
+        self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize)
+        # self.actor           = ActorCleanRLStyle(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
         self.critic          = Critic(self.recurrentStateSize + self.representationSize)
 
         self.recurrentState = self.sequenceModel.initializeRecurrentState()
@@ -115,65 +115,64 @@ class Dreamer:
         latentState, _ = self.posteriorNet(torch.cat((recurrentState, encodedObservation.view(-1)), -1))
         fullStateRepresentation = torch.cat((recurrentState, latentState), -1)
 
-        fullStateRepresentations = [fullStateRepresentation]
+        fullStateRepresentations = []
         actionLogProbabilities = []
-        predictedRewards = []
         for _ in range(self.imaginationHorizon):
             action, logProbabilities, _ = self.actor(fullStateRepresentation)
-
             nextRecurrentState = self.sequenceModel(latentState, action, recurrentState)
             nextLatentState, _ = self.priorNet(recurrentState)
-
             nextFullStateRepresentation = torch.cat((nextRecurrentState, nextLatentState), -1)
-            reward = self.rewardPredictor(nextFullStateRepresentation)
 
             fullStateRepresentations.append(nextFullStateRepresentation)
             actionLogProbabilities.append(logProbabilities)
-            predictedRewards.append(reward)
 
             recurrentState          = nextRecurrentState
             latentState             = nextLatentState
             fullStateRepresentation = nextFullStateRepresentation
 
         fullStateRepresentations = torch.stack(fullStateRepresentations)
-        actionLogProbabilities = torch.stack(actionLogProbabilities).sum(-1)
-        predictedRewards = torch.stack(predictedRewards)
+        predictedRewards = self.rewardPredictor(fullStateRepresentations)
 
         # Critic Update
-        valueEstimates = self.critic(fullStateRepresentations.detach())
-        lambdaValues = self.lambdaValues(predictedRewards, valueEstimates)
+        valueEstimates = self.critic(fullStateRepresentations)
+        # print(f"lambda values predicted rewards {predictedRewards.shape} and valueEstimates {valueEstimates.shape}")
+        lambdaValues = self.lambdaValues(rewards=predictedRewards[:-1], nextValues=valueEstimates[1:])
 
-        criticLoss = F.mse_loss(valueEstimates[:-1], lambdaValues.detach()) # 1 more value as bootstrap
-        self.criticOptimizer.zero_grad()
-        criticLoss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 100)
-        self.criticOptimizer.step()
-
-        valueEstimatesForActor = self.critic(fullStateRepresentations[:-1]) 
-        offset, inverseScale = self.valueMoments(lambdaValues.detach()) 
-        normalizedLambdaValues = (lambdaValues - offset) / inverseScale
-        normalizedValueEstimates = (valueEstimatesForActor - offset) / inverseScale
-        advantage = normalizedLambdaValues.detach() - normalizedValueEstimates
-        # discounts = torch.cumprod(torch.full((len(advantage),), 0.99, device=device), dim=0) / 0.99
-        _, _, entropy = self.actor(fullStateRepresentations[:-1])
-        actorLoss = -torch.mean((advantage*actionLogProbabilities + self.entropyScale*entropy))
-        # print(f"Actor loss is {actorLoss} because we -mean the discounted (advantages {advantage} plus entropy {self.entropyScale*entropy}")
-
+        actorLoss = -torch.mean(lambdaValues)
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
         self.actorOptimizer.step()
 
+        valuesForCriticUpdate = self.critic(fullStateRepresentations[:-1].detach())
+
+        # print(f"critic loss valuesForCriticUpdate {valuesForCriticUpdate.shape} and lambdaValues {lambdaValues.shape}")
+        criticLoss = F.mse_loss(valuesForCriticUpdate, lambdaValues.detach())
+        self.criticOptimizer.zero_grad()
+        criticLoss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 100)
+        self.criticOptimizer.step()
+
         return criticLoss.item(), actorLoss.item(), valueEstimates.detach().mean().cpu().item()
 
-    def lambdaValues(self, rewards, values, gamma=0.99, lambda_=0.95):
-        n = len(rewards)
-        returns = torch.zeros(n, device=device)
-        bootstrap = values[-1]
-        for t in reversed(range(n)):
-            returns[t] = rewards[t] + gamma*((1 - lambda_)*values[t + 1] + lambda_*bootstrap)
-            bootstrap = returns[t]
+    def lambdaValues(self, rewards, nextValues, gamma=0.997, lambda_=0.95):
+        bootstrap = nextValues[-1]
+        inputs = rewards + gamma * nextValues * (1 - lambda_)
+        outputs = []
+        for index in reversed(range(len(rewards))):
+            bootstrap = inputs[index] + gamma * lambda_ * bootstrap
+            outputs.append(bootstrap)
+        returns = torch.stack(list(reversed(outputs))).to(device)
         return returns
+
+    # def lambdaValuesFromClaude(self, rewards, nextValues, lambda_=0.95, gamma=0.99):
+    #     td_targets = rewards + gamma * nextValues
+    #     returns = torch.zeros_like(rewards)
+    #     bootstrap = td_targets[-1]  # Initialize with last TD target
+    #     for t in reversed(range(len(rewards))):
+    #         returns[t] = (1 - lambda_) * td_targets[t] + lambda_ * bootstrap
+    #         bootstrap = rewards[t] + gamma * returns[t]
+    #     return returns
 
     def reconstructObservations(self, observations, actions):
         encodedObservations = self.convEncoder(observations)
