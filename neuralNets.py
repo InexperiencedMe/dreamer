@@ -98,8 +98,12 @@ class RewardPredictor(nn.Module):
         self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
         self.setLastLayerToZeros(self.mlp)
 
-    def forward(self, x):
-        return self.mlp(x).squeeze(-1)
+    def forward(self, x, useSymexp=False):
+        out = self.mlp(x).squeeze(-1)
+        if useSymexp:
+            return symexp(out)
+        else:
+            return out
 
     def setLastLayerToZeros(self, network):
         nn.init.zeros_(network[-1].weight)

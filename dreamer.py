@@ -118,7 +118,7 @@ class Dreamer:
         fullStateRepresentations = []
         actionLogProbabilities = []
         for _ in range(self.imaginationHorizon):
-            action, logProbabilities, _ = self.actor(fullStateRepresentation)
+            action, logProbabilities, _ = self.actor(fullStateRepresentation) # I WAS LITERALLY TAKING THE WRONG ENTROPY WHAAAATTTTTTTTTT AM I DOING
             nextRecurrentState = self.sequenceModel(latentState, action, recurrentState)
             nextLatentState, _ = self.priorNet(recurrentState)
             nextFullStateRepresentation = torch.cat((nextRecurrentState, nextLatentState), -1)
@@ -131,22 +131,27 @@ class Dreamer:
             fullStateRepresentation = nextFullStateRepresentation
 
         fullStateRepresentations = torch.stack(fullStateRepresentations)
-        predictedRewards = self.rewardPredictor(fullStateRepresentations)
+        actionLogProbabilities = torch.stack(actionLogProbabilities).sum(-1)
+        predictedRewards = self.rewardPredictor(fullStateRepresentations[:-1], useSymexp=True)
 
-        # Critic Update
         valueEstimates = self.critic(fullStateRepresentations)
-        # print(f"lambda values predicted rewards {predictedRewards.shape} and valueEstimates {valueEstimates.shape}")
-        lambdaValues = self.lambdaValues(rewards=predictedRewards[:-1], values=valueEstimates)
+        lambdaValues = self.lambdaValues(rewards=predictedRewards, values=valueEstimates) # One fewer reward than values
 
-        actorLoss = -torch.mean(lambdaValues)
+        with torch.no_grad():
+            offset, inverseScale = self.valueMoments(lambdaValues)
+            normalizedLambdaValues = (lambdaValues - offset) / inverseScale
+            normalizedValueEstimates = (valueEstimates - offset) / inverseScale
+            advantages = normalizedLambdaValues - normalizedValueEstimates
+
+        # Actor Update
+        actorLoss = -torch.mean(advantages * actionLogProbabilities)
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
         self.actorOptimizer.step()
 
+        # Critic Update
         valuesForCriticUpdate = self.critic(fullStateRepresentations.detach())
-
-        # print(f"critic loss valuesForCriticUpdate {valuesForCriticUpdate.shape} and lambdaValues {lambdaValues.shape}")
         criticLoss = F.mse_loss(valuesForCriticUpdate, lambdaValues.detach())
         self.criticOptimizer.zero_grad()
         criticLoss.backward()

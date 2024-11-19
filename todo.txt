@@ -1,5 +1,6 @@
-- better critic and rewardPredictor initialization as in the paper
 - add batch + sequence length, episode updates might suck
+- soft update critic
+- why do value estimates constantly grow? Is everything okay with the update?
 
 
 - other stuff to increase performance
