@@ -1,4 +1,7 @@
-- replace old actor with the cleanrl style one with action bounds
+- better critic and rewardPredictor initialization as in the paper
+- add batch + sequence length, episode updates might suck
+
+
 - other stuff to increase performance
     - Maybe bigger models?
     - How about first training the world model many times, then actor many times and so on, in an interleaved way, like Schmidhuber and Ha.

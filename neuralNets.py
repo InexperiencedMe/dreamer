@@ -28,7 +28,7 @@ class PriorNet(nn.Module):
     
     def forward(self, x):
         logits = self.mlp(x)
-        sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses))
+        sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses), tau=1.5) # preventing KL spikes
         return sample.view(-1), logits
     
 class PosteriorNet(nn.Module):
@@ -40,7 +40,7 @@ class PosteriorNet(nn.Module):
     
     def forward(self, x):
         logits = self.mlp(x)
-        sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses))
+        sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses), tau=1.5) # preventing KL spikes
         return sample.view(-1), logits
 
 
@@ -96,9 +96,14 @@ class RewardPredictor(nn.Module):
     def __init__(self, inputSize):
         super(RewardPredictor, self).__init__()
         self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
+        self.setLastLayerToZeros(self.mlp)
 
     def forward(self, x):
         return self.mlp(x).squeeze(-1)
+
+    def setLastLayerToZeros(self, network):
+        nn.init.zeros_(network[-1].weight)
+        nn.init.zeros_(network[-1].bias)
 
 class Actor(nn.Module):
     def __init__(self, inputSize, actionSize):
@@ -153,6 +158,11 @@ class Critic(nn.Module):
     def __init__(self, inputSize):
         super(Critic, self).__init__()
         self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
+        self.setLastLayerToZeros(self.mlp)
 
     def forward(self, x):
         return self.mlp(x).squeeze(-1)
+
+    def setLastLayerToZeros(self, network):
+        nn.init.zeros_(network[-1].weight)
+        nn.init.zeros_(network[-1].bias)

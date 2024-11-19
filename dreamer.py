@@ -156,23 +156,12 @@ class Dreamer:
         return criticLoss.item(), actorLoss.item(), valueEstimates.detach().mean().cpu().item()
 
     def lambdaValues(self, rewards, nextValues, gamma=0.997, lambda_=0.95):
+        returns = torch.zeros_like(rewards)
         bootstrap = nextValues[-1]
-        inputs = rewards + gamma * nextValues * (1 - lambda_)
-        outputs = []
-        for index in reversed(range(len(rewards))):
-            bootstrap = inputs[index] + gamma * lambda_ * bootstrap
-            outputs.append(bootstrap)
-        returns = torch.stack(list(reversed(outputs))).to(device)
+        for i in reversed(range(len(rewards))):
+            returns[i] = rewards[i] + gamma * ((1 - lambda_)*nextValues[i] + lambda_*bootstrap)
+            bootstrap = returns[i]
         return returns
-
-    # def lambdaValuesFromClaude(self, rewards, nextValues, lambda_=0.95, gamma=0.99):
-    #     td_targets = rewards + gamma * nextValues
-    #     returns = torch.zeros_like(rewards)
-    #     bootstrap = td_targets[-1]  # Initialize with last TD target
-    #     for t in reversed(range(len(rewards))):
-    #         returns[t] = (1 - lambda_) * td_targets[t] + lambda_ * bootstrap
-    #         bootstrap = rewards[t] + gamma * returns[t]
-    #     return returns
 
     def reconstructObservations(self, observations, actions):
         encodedObservations = self.convEncoder(observations)
