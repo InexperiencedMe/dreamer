@@ -136,7 +136,7 @@ class Dreamer:
         # Critic Update
         valueEstimates = self.critic(fullStateRepresentations)
         # print(f"lambda values predicted rewards {predictedRewards.shape} and valueEstimates {valueEstimates.shape}")
-        lambdaValues = self.lambdaValues(rewards=predictedRewards[:-1], nextValues=valueEstimates[1:])
+        lambdaValues = self.lambdaValues(rewards=predictedRewards[:-1], values=valueEstimates)
 
         actorLoss = -torch.mean(lambdaValues)
         self.actorOptimizer.zero_grad()
@@ -144,7 +144,7 @@ class Dreamer:
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
         self.actorOptimizer.step()
 
-        valuesForCriticUpdate = self.critic(fullStateRepresentations[:-1].detach())
+        valuesForCriticUpdate = self.critic(fullStateRepresentations.detach())
 
         # print(f"critic loss valuesForCriticUpdate {valuesForCriticUpdate.shape} and lambdaValues {lambdaValues.shape}")
         criticLoss = F.mse_loss(valuesForCriticUpdate, lambdaValues.detach())
@@ -153,13 +153,16 @@ class Dreamer:
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 100)
         self.criticOptimizer.step()
 
-        return criticLoss.item(), actorLoss.item(), valueEstimates.detach().mean().cpu().item()
+        return criticLoss.detach().cpu().item(), actorLoss.detach().cpu().item(), valueEstimates.detach().mean().cpu().item()
 
-    def lambdaValues(self, rewards, nextValues, gamma=0.997, lambda_=0.95):
-        returns = torch.zeros_like(rewards)
-        bootstrap = nextValues[-1]
+    def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
+        # 1 less reward than values, last value is the bootstrap
+        # I GET IT NOW, USUALLY THEY HAVE 1 FEWER RETURN THAN VALUES BECAUSE THE BOOTSTRAP IS USELESS FOR LOSS CALC AS IT WOULD BE DELTA BETWEEN V_T and V_T
+        returns = torch.zeros_like(values)
+        bootstrap = values[-1]
+        returns[-1] = bootstrap
         for i in reversed(range(len(rewards))):
-            returns[i] = rewards[i] + gamma * ((1 - lambda_)*nextValues[i] + lambda_*bootstrap)
+            returns[i] = rewards[i] + gamma * ((1 - lambda_)*values[i] + lambda_*bootstrap)
             bootstrap = returns[i]
         return returns
 
