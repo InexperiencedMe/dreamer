@@ -115,16 +115,16 @@ class Dreamer:
         latentState, _ = self.posteriorNet(torch.cat((recurrentState, encodedObservation.view(-1)), -1))
         fullStateRepresentation = torch.cat((recurrentState, latentState), -1)
 
-        fullStateRepresentations = []
-        actionLogProbabilities = []
+        fullStateRepresentations, actionLogProbabilities, entropies = [], [], []
         for _ in range(self.imaginationHorizon):
-            action, logProbabilities, _ = self.actor(fullStateRepresentation) # I WAS LITERALLY TAKING THE WRONG ENTROPY WHAAAATTTTTTTTTT AM I DOING
+            action, logProbabilities, entropy = self.actor(fullStateRepresentation)
             nextRecurrentState = self.sequenceModel(latentState, action, recurrentState)
             nextLatentState, _ = self.priorNet(recurrentState)
             nextFullStateRepresentation = torch.cat((nextRecurrentState, nextLatentState), -1)
 
             fullStateRepresentations.append(nextFullStateRepresentation)
             actionLogProbabilities.append(logProbabilities)
+            entropies.append(entropy)
 
             recurrentState          = nextRecurrentState
             latentState             = nextLatentState
@@ -132,19 +132,20 @@ class Dreamer:
 
         fullStateRepresentations = torch.stack(fullStateRepresentations)
         actionLogProbabilities = torch.stack(actionLogProbabilities).sum(-1)
+        entropies = torch.stack(entropies)
         predictedRewards = self.rewardPredictor(fullStateRepresentations[:-1], useSymexp=True)
 
         valueEstimates = self.critic(fullStateRepresentations)
-        lambdaValues = self.lambdaValues(rewards=predictedRewards, values=valueEstimates) # One fewer reward than values
-
         with torch.no_grad():
+            lambdaValues = self.lambdaValues(predictedRewards, valueEstimates)
+
             offset, inverseScale = self.valueMoments(lambdaValues)
             normalizedLambdaValues = (lambdaValues - offset) / inverseScale
             normalizedValueEstimates = (valueEstimates - offset) / inverseScale
             advantages = normalizedLambdaValues - normalizedValueEstimates
 
         # Actor Update
-        actorLoss = -torch.mean(advantages * actionLogProbabilities)
+        actorLoss = -torch.mean(advantages * actionLogProbabilities + self.entropyScale * entropy)
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
@@ -161,8 +162,6 @@ class Dreamer:
         return criticLoss.detach().cpu().item(), actorLoss.detach().cpu().item(), valueEstimates.detach().mean().cpu().item()
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
-        # 1 less reward than values, last value is the bootstrap
-        # I GET IT NOW, USUALLY THEY HAVE 1 FEWER RETURN THAN VALUES BECAUSE THE BOOTSTRAP IS USELESS FOR LOSS CALC AS IT WOULD BE DELTA BETWEEN V_T and V_T
         returns = torch.zeros_like(values)
         bootstrap = values[-1]
         returns[-1] = bootstrap
