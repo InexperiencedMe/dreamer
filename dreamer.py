@@ -41,7 +41,7 @@ class Dreamer:
         self.worldModelOptimizer = optim.AdamW(
             list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
             list(self.priorNet.parameters()) + list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()), 
-            lr=1e-3)
+            lr=3e-4)
         
         self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=3e-4)
         self.actorOptimizer = optim.AdamW(self.actor.parameters(), lr=3e-4)
@@ -109,11 +109,13 @@ class Dreamer:
         return worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item()
     
     def trainActorCritic(self, observations):
+        # Get the full state representation as in input, not observation to be encoded
+        # currentObservation = observations[torch.randint(0, len(observations), (1,)).item()].unsqueeze(0)
         currentObservation = observations[0].unsqueeze(0)
         encodedObservation = self.convEncoder(currentObservation)
         recurrentState = self.sequenceModel.initializeRecurrentState()
         latentState, _ = self.posteriorNet(torch.cat((recurrentState, encodedObservation.view(-1)), -1))
-        fullStateRepresentation = torch.cat((recurrentState, latentState), -1)
+        fullStateRepresentation = torch.cat((recurrentState, latentState), -1).detach()
 
         fullStateRepresentations, actionLogProbabilities, entropies = [], [], []
         for _ in range(self.imaginationHorizon):
@@ -133,7 +135,7 @@ class Dreamer:
         fullStateRepresentations = torch.stack(fullStateRepresentations)
         actionLogProbabilities = torch.stack(actionLogProbabilities).sum(-1)
         entropies = torch.stack(entropies)
-        predictedRewards = self.rewardPredictor(fullStateRepresentations[:-1], useSymexp=True)
+        predictedRewards = self.rewardPredictor(fullStateRepresentations[:-1], useSymexp=True).detach()
 
         valueEstimates = self.critic(fullStateRepresentations)
         with torch.no_grad():

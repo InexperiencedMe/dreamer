@@ -1,4 +1,7 @@
 - add batch + sequence length, episode updates might suck
+    - actor critic update should get full state representation as an input, not raw obs to be encoded
+    - world model should update in batches
+    - actor critic should update in batches and get multiple full state representations
 - soft update critic
 - why do value estimates constantly grow? Is everything okay with the update?
 
