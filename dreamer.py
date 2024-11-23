@@ -8,8 +8,8 @@ import csv
 
 class Dreamer:
     def __init__(self):
-        self.representationLength = 32
-        self.representationClasses = 32
+        self.representationLength = 16
+        self.representationClasses = 16
         self.representationSize = self.representationLength * self.representationClasses
         self.actionSize = 3
         self.recurrentStateSize = 512
