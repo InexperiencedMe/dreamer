@@ -21,7 +21,7 @@ class Dreamer:
         self.betaReconstruction = 20
         self.betaReward = 1
         self.betaKL = 1
-        self.entropyScale = 0.001
+        self.entropyScale = 0.000
         self.tau = 0.05
         self.gamma = 0.997
         self.lambda_ = 0.95
@@ -33,7 +33,8 @@ class Dreamer:
         self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationsSize, self.representationLength, self.representationClasses).to(device)
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
         self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize)
-        # self.actor           = ActorCleanRLStyle(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
+        self.actor           = ActorCleanRLStyle(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
+        # self.actor           = ActorGPT(self.recurrentStateSize + self.representationSize, self.actionSize, actionBounds=[(-1, 1), (0, 1), (0, 1)]).to(device)
         self.critic          = Critic(self.recurrentStateSize + self.representationSize).to(device)
         self.targetCritic    = copy.deepcopy(self.critic)
 
@@ -115,7 +116,7 @@ class Dreamer:
     
     def trainActorCritic(self, initialFullState):
         with torch.no_grad():
-            fullState = initialFullState.detach()
+            fullState = initialFullState.detach().view(-1)
             recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
         
         fullStates, actionLogProbabilities, entropies = [], [], []
@@ -129,9 +130,9 @@ class Dreamer:
             actionLogProbabilities.append(logProbabilities)
             entropies.append(entropy)
 
-            recurrentState          = nextRecurrentState
-            latentState             = nextLatentState
-            fullState               = nextFullState
+            recurrentState = nextRecurrentState
+            latentState    = nextLatentState
+            fullState      = nextFullState
 
         fullStates = torch.stack(fullStates)
         actionLogProbabilities = torch.stack(actionLogProbabilities)
@@ -139,16 +140,17 @@ class Dreamer:
         predictedRewards = self.rewardPredictor(fullStates[:-1], useSymexp=True).detach()
 
         valueEstimates = self.targetCritic(fullStates)
-        with torch.no_grad():
-            lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
+        lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
+        # with torch.no_grad():
 
-            offset, inverseScale = self.valueMoments(lambdaValues)
-            normalizedLambdaValues = (lambdaValues - offset)/inverseScale
-            normalizedValueEstimates = (valueEstimates - offset)/inverseScale
-            advantages = normalizedLambdaValues - normalizedValueEstimates
+        #     offset, inverseScale = self.valueMoments(lambdaValues)
+        #     normalizedLambdaValues = (lambdaValues - offset)/inverseScale
+        #     normalizedValueEstimates = (valueEstimates - offset)/inverseScale
+        #     advantages = normalizedLambdaValues - normalizedValueEstimates
 
         # Actor Update
-        actorLoss = -torch.mean(advantages.detach() * actionLogProbabilities + self.entropyScale * entropies)
+        # actorLoss = torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
+        actorLoss = -torch.mean(lambdaValues)
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)

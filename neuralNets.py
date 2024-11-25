@@ -120,7 +120,7 @@ class Actor(nn.Module):
         std = torch.exp(self.logStd(x))
         # print(f"actor raw output:\nmean {mean} of shape {mean.shape}\std {std} of shape {std.shape}")
         distribution = distributions.Normal(mean, std)
-        action = distribution.sample()
+        action = distribution.rsample() # Rsample when we use DreamerV1 update, normal sample when we use advantages??
         if training:
             # print(f"Will be returning entropy of shape: {distribution.entropy().sum(-1).shape} instead of {distribution.entropy().mean().shape} like before")
             return action, distribution.log_prob(action).sum(-1), distribution.entropy().sum(-1)
@@ -151,8 +151,7 @@ class ActorCleanRLStyle(nn.Module):
         if training:
             logProbabilities = distribution.log_prob(sample)
             logProbabilities -= torch.log(self.actionScale * (1 - sampleTanh.pow(2)) + 1e-6)
-            logProbabilities = logProbabilities.sum(-1, keepdim=True)
-            return action, logProbabilities, distribution.entropy().sum(-1)
+            return action, logProbabilities.sum(-1), distribution.entropy().sum(-1)
         else:
             return action
 
@@ -168,3 +167,48 @@ class Critic(nn.Module):
     def setLastLayerToZeros(self, network):
         nn.init.zeros_(network[-1].weight)
         nn.init.zeros_(network[-1].bias)
+
+class ActorGPT(nn.Module):
+    def __init__(self, inputSize, actionSize, actionBounds):
+        """
+        Args:
+            inputSize (int): Dimension of the input features.
+            actionSize (int): Number of actions.
+            actionBounds (list of tuples): List of (min, max) for each action.
+        """
+        super(ActorGPT, self).__init__()
+        self.mean = sequentialModel1D(inputSize, [256, 256], actionSize)
+        self.logStd = sequentialModel1D(inputSize, [256, 256], actionSize)
+        
+        # Store action bounds
+        self.actionBounds = torch.tensor(actionBounds, device=device)
+
+    def forward(self, x, training=True):
+        mean = self.mean(x)
+        std = torch.exp(self.logStd(x))
+        
+        # Create a Normal distribution
+        distribution = distributions.Normal(mean, std)
+        action = distribution.rsample()  # Reparameterized sampling
+        
+        # Map action to bounded range using tanh and rescaling
+        boundedAction = self._applyBounds(torch.tanh(action))
+        
+        if training:
+            logProb = distribution.log_prob(action).sum(-1)
+            entropy = distribution.entropy().sum(-1)
+            return boundedAction, logProb, entropy
+        else:
+            return boundedAction
+
+    def _applyBounds(self, action):
+        """
+        Rescale action to the specified bounds.
+        Args:
+            action (torch.Tensor): Action values in the range (-1, 1).
+        Returns:
+            torch.Tensor: Scaled action values.
+        """
+        minBounds = self.actionBounds[:, 0]
+        maxBounds = self.actionBounds[:, 1]
+        return (action + 1) / 2 * (maxBounds - minBounds) + minBounds
