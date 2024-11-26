@@ -32,7 +32,7 @@ class Dreamer:
         self.priorNet        = PriorNet(self.recurrentStateSize, self.representationLength, self.representationClasses).to(device)
         self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationsSize, self.representationLength, self.representationClasses).to(device)
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
-        self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize)
+        # self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize)
         self.actor           = ActorCleanRLStyle(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
         # self.actor           = ActorGPT(self.recurrentStateSize + self.representationSize, self.actionSize, actionBounds=[(-1, 1), (0, 1), (0, 1)]).to(device)
         self.critic          = Critic(self.recurrentStateSize + self.representationSize).to(device)
@@ -118,13 +118,14 @@ class Dreamer:
         with torch.no_grad():
             fullState = initialFullState.detach().view(-1)
             recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
+            action = self.actor(fullState, training=False)
         
         fullStates, actionLogProbabilities, entropies = [], [], []
         for _ in range(self.imaginationHorizon):
-            action, logProbabilities, entropy = self.actor(fullState)
             nextRecurrentState = self.sequenceModel(latentState, action, recurrentState)
-            nextLatentState, _ = self.priorNet(recurrentState)
+            nextLatentState, _ = self.priorNet(nextRecurrentState)
             nextFullState = torch.cat((nextRecurrentState, nextLatentState), -1)
+            action, logProbabilities, entropy = self.actor(nextFullState)
 
             fullStates.append(nextFullState)
             actionLogProbabilities.append(logProbabilities)
