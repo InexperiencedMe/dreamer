@@ -16,8 +16,8 @@ class Dreamer:
         self.compressedObservationsSize = 512
         self.obsShape = (3, 96, 96)
         self.imaginationHorizon = 16
-        self.betaPrior = 10
-        self.betaPosterior = 1
+        self.betaPrior = 1
+        self.betaPosterior = 0.1
         self.betaReconstruction = 20
         self.betaReward = 1
         self.betaKL = 1
@@ -34,13 +34,14 @@ class Dreamer:
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
         # self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize)
         self.actor           = ActorCleanRLStyle(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
-        # self.actor           = ActorGPT(self.recurrentStateSize + self.representationSize, self.actionSize, actionBounds=[(-1, 1), (0, 1), (0, 1)]).to(device)
+        # self.actor           = ActorMyBound(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
         self.critic          = Critic(self.recurrentStateSize + self.representationSize).to(device)
         self.targetCritic    = copy.deepcopy(self.critic)
 
         self.recurrentState  = self.sequenceModel.initializeRecurrentState()
         self.valueMoments    = Moments()
         self.totalUpdates    = 0
+        self.freeNats        = 1
 
         self.worldModelOptimizer = optim.AdamW(
             list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
@@ -100,9 +101,10 @@ class Dreamer:
         priorDistributionSG     = torch.distributions.Categorical(logits=priorNetLogits.detach())
         posteriorDistributionSG = torch.distributions.Categorical(logits=posteriorNetLogits.detach())
 
-        priorLoss = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution).mean()
-        posteriorLoss = torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG).mean()
-        klLoss = self.betaPrior*priorLoss + self.betaPosterior*posteriorLoss # We add it because they have the same value, no need to distinguish it
+        priorLoss = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution)
+        posteriorLoss = torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG)
+        freeNats = torch.full_like(priorLoss, self.freeNats)
+        klLoss = self.betaPrior*torch.maximum(priorLoss, freeNats).mean() + self.betaPosterior*torch.maximum(posteriorLoss, freeNats).mean()
 
         worldModelLoss =  self.betaReconstruction*reconstructionLoss + self.betaReward*rewardPredictorLoss + self.betaKL*klLoss
 
@@ -138,7 +140,7 @@ class Dreamer:
         fullStates = torch.stack(fullStates)
         actionLogProbabilities = torch.stack(actionLogProbabilities)
         entropies = torch.stack(entropies)
-        predictedRewards = self.rewardPredictor(fullStates[:-1], useSymexp=True).detach()
+        predictedRewards = self.rewardPredictor(fullStates[:-1], useSymexp=True)
 
         valueEstimates = self.targetCritic(fullStates)
         lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
@@ -234,6 +236,7 @@ class Dreamer:
             'worldModelOptimizer'   : self.worldModelOptimizer.state_dict(),
             'criticOptimizer'       : self.criticOptimizer.state_dict(),
             'actorOptimizer'        : self.actorOptimizer.state_dict(),
+            'valueMoments'          : self.valueMoments.state_dict(),
             'recurrentState'        : self.recurrentState,
             'totalUpdates'          : self.totalUpdates
         }
@@ -257,6 +260,7 @@ class Dreamer:
         self.worldModelOptimizer.load_state_dict( checkpoint['worldModelOptimizer'])
         self.criticOptimizer.load_state_dict(     checkpoint['criticOptimizer'])
         self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])
+        self.valueMoments.load_state_dict(        checkpoint['valueMoments'])
         self.recurrentState =                     checkpoint['recurrentState']
         self.totalUpdates =                       checkpoint['totalUpdates']
         print(f"Loaded checkpoint from: {checkpointPath}")

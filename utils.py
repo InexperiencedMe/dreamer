@@ -169,6 +169,7 @@ def plotMetrics(filename, title="", show=True, save=False, savePath="metricsPlot
         if not savePath.endswith(".html"):
             savePath += ".html"
         fig.write_html(savePath)
+        print(f"Saved html plot to {savePath}")
 
     if show:
         fig.show()
@@ -228,11 +229,12 @@ def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30, macroB
         frames.append(resizedFrame)
 
     env.close()
-    final_filename = f"{filename}_reward_{int(totalReward)}.mp4"
+    finalFilename = f"{filename}_reward_{int(totalReward)}.mp4"
     
-    with imageio.get_writer(final_filename, fps=fps) as video:
+    with imageio.get_writer(finalFilename, fps=fps) as video:
         for frame in frames:
             video.append_data(frame)
+    print(f"Saved video to {finalFilename}")
 
 class Moments(nn.Module):
     def __init__( self, decay = 0.99, min_=1, percentileLow = 0.05, percentileHigh = 0.95):
