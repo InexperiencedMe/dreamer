@@ -22,7 +22,7 @@ class Dreamer:
         self.betaReward = 1
         self.betaKL = 1
         self.entropyScale = 0.000
-        self.tau = 0.05
+        self.tau = 1
         self.gamma = 0.997
         self.lambda_ = 0.95
         
@@ -34,7 +34,6 @@ class Dreamer:
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
         # self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize)
         self.actor           = ActorCleanRLStyle(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
-        # self.actor           = ActorMyBound(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
         self.critic          = Critic(self.recurrentStateSize + self.representationSize).to(device)
         self.targetCritic    = copy.deepcopy(self.critic)
 
@@ -160,7 +159,7 @@ class Dreamer:
         self.actorOptimizer.step()
 
         # Critic Update
-        valuesForCriticUpdate = self.critic(fullStates.detach())
+        valuesForCriticUpdate = self.critic(fullStates[:-1].detach())
         criticLoss = F.mse_loss(valuesForCriticUpdate, lambdaValues.detach())
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
@@ -173,9 +172,8 @@ class Dreamer:
         return criticLoss.detach().cpu().item(), actorLoss.detach().cpu().item(), valueEstimates.detach().mean().cpu().item()
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
-        returns = torch.zeros_like(values)
+        returns = torch.zeros_like(rewards)
         bootstrap = values[-1]
-        returns[-1] = bootstrap
         for i in reversed(range(len(rewards))):
             returns[i] = rewards[i] + gamma * ((1 - lambda_)*values[i] + lambda_*bootstrap)
             bootstrap = returns[i]
@@ -233,6 +231,7 @@ class Dreamer:
             'rewardPredictor'       : self.rewardPredictor.state_dict(),
             'actor'                 : self.actor.state_dict(),
             'critic'                : self.critic.state_dict(),
+            'targetCritic'          : self.critic.state_dict(),
             'worldModelOptimizer'   : self.worldModelOptimizer.state_dict(),
             'criticOptimizer'       : self.criticOptimizer.state_dict(),
             'actorOptimizer'        : self.actorOptimizer.state_dict(),
@@ -257,6 +256,7 @@ class Dreamer:
         self.rewardPredictor.load_state_dict(     checkpoint['rewardPredictor'])
         self.actor.load_state_dict(               checkpoint['actor'])
         self.critic.load_state_dict(              checkpoint['critic'])
+        # self.targetCritic.load_state_dict(        checkpoint['targetCritic'])
         self.worldModelOptimizer.load_state_dict( checkpoint['worldModelOptimizer'])
         self.criticOptimizer.load_state_dict(     checkpoint['criticOptimizer'])
         self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])

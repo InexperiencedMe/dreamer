@@ -167,25 +167,3 @@ class Critic(nn.Module):
     def setLastLayerToZeros(self, network):
         nn.init.zeros_(network[-1].weight)
         nn.init.zeros_(network[-1].bias)
-
-class ActorMyBound(nn.Module):
-    def __init__(self, inputSize, actionSize, actionLow=[-1], actionHigh=[1]):
-        super(ActorMyBound, self).__init__()
-        self.mean = sequentialModel1D(inputSize, [256, 256], actionSize, finishWithActivation=True, activationFunction=nn.Tanh)
-        self.logStd = sequentialModel1D(inputSize, [256, 256], actionSize, finishWithActivation=True, activationFunction=nn.Sigmoid)
-
-        self.register_buffer("actionScale", ((torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device)) / 2.0))
-        self.register_buffer("actionBias", ((torch.tensor(actionHigh, device=device) + torch.tensor(actionLow, device=device)) / 2.0))
-
-
-    def forward(self, x, training=True):
-        mean = self.mean(x)
-        std = torch.exp(self.logStd(x))
-        # print(f"actor raw output:\nmean {mean} of shape {mean.shape}\std {std} of shape {std.shape}")
-        distribution = distributions.Normal(mean, std)
-        action = distribution.sample()*self.actionScale + self.actionBias # Rsample when we use DreamerV1 update, normal sample when we use advantages??
-        if training:
-            # print(f"Will be returning entropy of shape: {distribution.entropy().sum(-1).shape} instead of {distribution.entropy().mean().shape} like before")
-            return action, distribution.log_prob(action).sum(-1), distribution.entropy().sum(-1)
-        else:
-            return action
