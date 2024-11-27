@@ -22,7 +22,7 @@ class Dreamer:
         self.betaReward = 1
         self.betaKL = 1
         self.entropyScale = 0.000
-        self.tau = 1
+        self.tau = 0.05
         self.gamma = 0.997
         self.lambda_ = 0.95
         

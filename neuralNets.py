@@ -25,11 +25,18 @@ class PriorNet(nn.Module):
         self.representationLength = representationLength
         self.representationClasses = representationClasses
         self.mlp = sequentialModel1D(inputSize, [512, 256], representationLength*representationClasses)
+        self.uniformMix = 0.01
     
     def forward(self, x):
-        logits = self.mlp(x)
-        sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses), hard=True)
-        return sample.view(-1), logits
+        rawLogits = self.mlp(x)
+
+        probabilities = rawLogits.view(self.representationLength, self.representationClasses).softmax(-1)
+        uniform = torch.ones_like(probabilities) / self.representationClasses
+        finalProbabilities = (1 - self.uniformMix)*probabilities + self.uniformMix*uniform
+        finalLogits = distributions.utils.probs_to_logits(finalProbabilities)
+
+        sample = F.gumbel_softmax(finalLogits.view(self.representationLength, self.representationClasses), hard=True)
+        return sample.view(-1), finalLogits
     
 class PosteriorNet(nn.Module):
     def __init__(self, inputSize, representationLength=16, representationClasses=16):
@@ -39,9 +46,15 @@ class PosteriorNet(nn.Module):
         self.mlp = sequentialModel1D(inputSize, [512, 256], representationLength*representationClasses)
     
     def forward(self, x):
-        logits = self.mlp(x)
-        sample = F.gumbel_softmax(logits.view(self.representationLength, self.representationClasses), hard=True)
-        return sample.view(-1), logits
+        rawLogits = self.mlp(x)
+
+        probabilities = rawLogits.view(self.representationLength, self.representationClasses).softmax(-1)
+        uniform = torch.ones_like(probabilities) / self.representationClasses
+        finalProbabilities = (1 - self.uniformMix)*probabilities + self.uniformMix*uniform
+        finalLogits = distributions.utils.probs_to_logits(finalProbabilities)
+
+        sample = F.gumbel_softmax(finalLogits.view(self.representationLength, self.representationClasses), hard=True)
+        return sample.view(-1), finalLogits
 
 
 class ConvEncoder(nn.Module):
