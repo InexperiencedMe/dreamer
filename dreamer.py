@@ -21,7 +21,7 @@ class Dreamer:
         self.betaReconstruction = 20
         self.betaReward = 1
         self.betaKL = 1
-        self.entropyScale = 0.000
+        self.entropyScale = 0.0003
         self.tau = 0.05
         self.gamma = 0.997
         self.lambda_ = 0.95
@@ -63,7 +63,6 @@ class Dreamer:
 
     def trainWorldModel(self, observations, actions, rewards):
         encodedObservations = self.convEncoder(observations)
-        # TODO: Exchange this local version to the internal recurrent state assigned to the object
         initialRecurrentState = self.sequenceModel.initializeRecurrentState()
         episodeLength = len(actions)
 
@@ -142,17 +141,17 @@ class Dreamer:
         predictedRewards = self.rewardPredictor(fullStates[:-1], useSymexp=True)
 
         valueEstimates = self.targetCritic(fullStates)
-        lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
-        # with torch.no_grad():
+        with torch.no_grad():
+            lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
 
-        #     offset, inverseScale = self.valueMoments(lambdaValues)
-        #     normalizedLambdaValues = (lambdaValues - offset)/inverseScale
-        #     normalizedValueEstimates = (valueEstimates - offset)/inverseScale
-        #     advantages = normalizedLambdaValues - normalizedValueEstimates
+            offset, inverseScale = self.valueMoments(lambdaValues)
+            normalizedLambdaValues = (lambdaValues - offset)/inverseScale
+            normalizedValueEstimates = (valueEstimates - offset)/inverseScale
+            advantages = normalizedLambdaValues - normalizedValueEstimates
 
         # Actor Update
-        # actorLoss = torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
-        actorLoss = -torch.mean(lambdaValues)
+        actorLoss = torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
+        # actorLoss = -torch.mean(lambdaValues)
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
