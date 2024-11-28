@@ -143,11 +143,8 @@ class Dreamer:
         valueEstimates = self.targetCritic(fullStates)
         with torch.no_grad():
             lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
-
-            offset, inverseScale = self.valueMoments(lambdaValues)
-            normalizedLambdaValues = (lambdaValues - offset)/inverseScale
-            normalizedValueEstimates = (valueEstimates[:-1] - offset)/inverseScale
-            advantages = normalizedLambdaValues - normalizedValueEstimates
+            _, inverseScale = self.valueMoments(lambdaValues) # Very slow. Might as well divide by EMA of range, no quantiles
+            advantages = (lambdaValues - valueEstimates[:-1])/inverseScale
 
         # Actor Update
         actorLoss = torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
