@@ -136,8 +136,8 @@ class Dreamer:
             fullState      = nextFullState
 
         fullStates = torch.stack(fullStates)
-        actionLogProbabilities = torch.stack(actionLogProbabilities)
-        entropies = torch.stack(entropies)
+        actionLogProbabilities = torch.stack(actionLogProbabilities[:-1])
+        entropies = torch.stack(entropies[:-1])
         predictedRewards = self.rewardPredictor(fullStates[:-1], useSymexp=True)
 
         valueEstimates = self.targetCritic(fullStates)
@@ -146,7 +146,7 @@ class Dreamer:
 
             offset, inverseScale = self.valueMoments(lambdaValues)
             normalizedLambdaValues = (lambdaValues - offset)/inverseScale
-            normalizedValueEstimates = (valueEstimates - offset)/inverseScale
+            normalizedValueEstimates = (valueEstimates[:-1] - offset)/inverseScale
             advantages = normalizedLambdaValues - normalizedValueEstimates
 
         # Actor Update
