@@ -44,6 +44,7 @@ class PosteriorNet(nn.Module):
         self.representationLength = representationLength
         self.representationClasses = representationClasses
         self.mlp = sequentialModel1D(inputSize, [512, 256], representationLength*representationClasses)
+        self.uniformMix = 0.01
     
     def forward(self, x):
         rawLogits = self.mlp(x)
