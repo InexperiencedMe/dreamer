@@ -158,7 +158,7 @@ class ActorCleanRLStyle(nn.Module):
         logStd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (logStd + 1)
         std = torch.exp(logStd)
         distribution = distributions.Normal(mean, std)
-        sample = distribution.rsample()
+        sample = distribution.sample()
         sampleTanh = torch.tanh(sample)
         action = sampleTanh*self.actionScale + self.actionBias
 

@@ -147,8 +147,9 @@ class Dreamer:
             advantages = (lambdaValues - valueEstimates[:-1])/inverseScale
 
         # Actor Update
-        actorLoss = torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
-        # actorLoss = -torch.mean(lambdaValues)
+        # NOTE: Actor has to use .sample() when using advantages, .rsample() when using -lambdaValues
+        actorLoss = -torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies) # TODO: Try weighted average - we trust early lambda values more
+        # actorLoss = -torch.mean(lambdaValues) # DreamerV1 style loss
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
