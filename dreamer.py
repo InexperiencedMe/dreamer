@@ -8,6 +8,8 @@ import copy
 
 class Dreamer:
     def __init__(self):
+        self.worldModelBatchSize = 16
+        self.actorCriticBatchSize = 8
         self.representationLength = 16
         self.representationClasses = 16
         self.representationSize = self.representationLength * self.representationClasses
@@ -55,13 +57,16 @@ class Dreamer:
         if reset:
             self.recurrentState = self.sequenceModel.initializeRecurrentState()
 
-        encodedObservation = self.convEncoder(observation).view(-1)
+        encodedObservation = self.convEncoder(observation)
         latentState, _, = self.posteriorNet(torch.cat((self.recurrentState, encodedObservation), -1))
         fullState = torch.cat((self.recurrentState, latentState), -1)
         return self.actor(fullState, training=False)
 
 
     def trainWorldModel(self, observations, actions, rewards):
+        print(f"wc input obs: {observations.shape}")
+        print(f"wc input actions: {actions.shape}")
+        print(f"wc input rewards: {rewards.shape}")
         encodedObservations = self.convEncoder(observations)
         initialRecurrentState = self.sequenceModel.initializeRecurrentState()
         episodeLength = len(actions)
@@ -72,24 +77,32 @@ class Dreamer:
         posteriorNetLogits = []
 
         for timestep in range(episodeLength):
-            posteriorNetOutput, posteriorNetCurrentLogits = self.posteriorNet(torch.cat((recurrentStates[timestep], encodedObservations[timestep]), -1))
+            posteriorNetOutput, posteriorNetCurrentLogits = self.posteriorNet(torch.cat((recurrentStates[timestep], encodedObservations[timestep].unsqueeze(0)), -1))
             posteriorNetOutputs.append(posteriorNetOutput)
             posteriorNetLogits.append(posteriorNetCurrentLogits)
 
-            recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), actions[timestep], recurrentStates[timestep])
+            recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), torch.atleast_2d(actions[timestep]), recurrentStates[timestep])
             recurrentStates.append(recurrentState)
 
             _, priorNetCurrentLogits = self.priorNet(recurrentStates[timestep])
             priorNetLogits.append(priorNetCurrentLogits)
 
-        recurrentStates = torch.stack(recurrentStates)              # [episodeLength + 1, recurrentStateSize]
-        posteriorNetOutputs = torch.stack(posteriorNetOutputs)      # [episodeLength    , representationSize]
-        posteriorNetLogits = torch.stack(posteriorNetLogits)        # [episodeLength    , representationSize]
-        priorNetLogits = torch.stack(priorNetLogits)                # [episodeLength    , representationSize]
-        fullStates = torch.cat((recurrentStates[1:], posteriorNetOutputs), -1)
+        recurrentStates = torch.stack(recurrentStates).squeeze()               # [episodeLength + 1, recurrentStateSize]
+        print(f"wm recurrentStates: {recurrentStates.shape}")
+        posteriorNetOutputs = torch.stack(posteriorNetOutputs).squeeze()       # [episodeLength    , representationSize]
+        print(f"wm posteriorNetOutputs: {posteriorNetOutputs.shape}")
+        posteriorNetLogits = torch.stack(posteriorNetLogits).squeeze()         # [episodeLength    , representationLength, representationClasses]
+        print(f"wm posteriorNetLogits: {posteriorNetLogits.shape}")
+        priorNetLogits = torch.stack(priorNetLogits).squeeze()                 # [episodeLength    , representationLength, representationClasses]
+        print(f"wm priorNetLogits: {priorNetLogits.shape}")
+        fullStates = torch.cat((recurrentStates[1:], posteriorNetOutputs), -1).squeeze() # [episodeLength    , recurrentSize + representationSize]
+        print(f"wm fullStates: {fullStates.shape}")
 
-        reconstructedObservations = self.convDecoder(fullStates)
-        predictedRewards = self.rewardPredictor(fullStates)
+        reconstructedObservations = self.convDecoder(fullStates) # [episodeLength, *obsShape]
+        print(f"wm reconstructedObservations: {reconstructedObservations.shape}")
+        predictedRewards = self.rewardPredictor(fullStates) # [episodeLength] To match the rewards replay
+        print(f"wm predictedRewards: {predictedRewards.shape}")
+
 
         reconstructionLoss = F.mse_loss(reconstructedObservations, observations[1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
         rewardPredictorLoss = F.mse_loss(predictedRewards, symlog(rewards))
@@ -110,21 +123,27 @@ class Dreamer:
         worldModelLoss.backward()
         self.worldModelOptimizer.step()
 
-        sampledFullState = fullStates[torch.randperm(fullStates.shape[0])[:1]].detach() # One initial state for imagination rollout
+        sampledFullStates = fullStates[torch.randperm(fullStates.shape[0])[:self.actorCriticBatchSize]].detach() # One initial state for imagination rollout
 
-        return sampledFullState, worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item()
+        return sampledFullStates, worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item()
     
     def trainActorCritic(self, initialFullState):
         with torch.no_grad():
-            fullState = initialFullState.detach().view(-1)
+            fullState = initialFullState.detach()
+            print(f"ac init fullState: {fullState.shape}")
             recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
+            print(f"ac init recurrentState, latentState: {recurrentState.shape}, {latentState.shape}")
             action = self.actor(fullState, training=False)
+            print(f"ac init action: {action.shape}")
         
         fullStates, actionLogProbabilities, entropies = [], [], []
         for _ in range(self.imaginationHorizon):
             nextRecurrentState = self.sequenceModel(latentState, action, recurrentState)
+            # print(f"ac nextRecurrentState: {nextRecurrentState.shape}")
             nextLatentState, _ = self.priorNet(nextRecurrentState)
+            # print(f"ac nextLatentState: {nextLatentState.shape}")
             nextFullState = torch.cat((nextRecurrentState, nextLatentState), -1)
+            # print(f"ac nextFullState: {nextFullState.shape}")
             action, logProbabilities, entropy = self.actor(nextFullState)
 
             fullStates.append(nextFullState)
@@ -135,16 +154,22 @@ class Dreamer:
             latentState    = nextLatentState
             fullState      = nextFullState
 
-        fullStates = torch.stack(fullStates)
-        actionLogProbabilities = torch.stack(actionLogProbabilities[:-1])
-        entropies = torch.stack(entropies[:-1])
-        predictedRewards = self.rewardPredictor(fullStates[:-1], useSymexp=True)
+        fullStates = torch.stack(fullStates, dim=1)
+        print(f"ac stacked fullStates: {fullStates.shape}")
+        actionLogProbabilities = torch.stack(actionLogProbabilities[:-1], dim=1)
+        print(f"ac stacked actionLogProbabilities: {actionLogProbabilities.shape}")
+        entropies = torch.stack(entropies[:-1], dim=1)
+        print(f"ac stacked entropies: {entropies.shape}")
+        predictedRewards = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)
+        print(f"ac stacked predictedRewards: {predictedRewards.shape}")
 
         valueEstimates = self.targetCritic(fullStates)
+        print(f"ac valueEstimates: {valueEstimates.shape}")
         with torch.no_grad():
             lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
+            print(f"ac lambdaValues: {lambdaValues.shape}")
             _, inverseScale = self.valueMoments(lambdaValues) # Very slow. Might as well divide by EMA of range, no quantiles
-            advantages = (lambdaValues - valueEstimates[:-1])/inverseScale
+            advantages = (lambdaValues - valueEstimates[:, :-1])/inverseScale
 
         # Actor Update
         # NOTE: Actor has to use .sample() when using advantages, .rsample() when using -lambdaValues
@@ -156,7 +181,7 @@ class Dreamer:
         self.actorOptimizer.step()
 
         # Critic Update
-        valuesForCriticUpdate = self.critic(fullStates[:-1].detach())
+        valuesForCriticUpdate = self.critic(fullStates[:, :-1].detach())
         criticLoss = F.mse_loss(valuesForCriticUpdate, lambdaValues.detach())
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
@@ -170,10 +195,10 @@ class Dreamer:
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
         returns = torch.zeros_like(rewards)
-        bootstrap = values[-1]
-        for i in reversed(range(len(rewards))):
-            returns[i] = rewards[i] + gamma * ((1 - lambda_)*values[i] + lambda_*bootstrap)
-            bootstrap = returns[i]
+        bootstrap = values[:, -1]
+        for i in reversed(range(rewards.shape[-1])):
+            returns[:, i] = rewards[:, i] + gamma * ((1 - lambda_)*values[:, i] + lambda_*bootstrap)
+            bootstrap = returns[:, i]
         return returns
 
     def reconstructObservations(self, observations, actions):
@@ -191,8 +216,8 @@ class Dreamer:
             recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), actions[timestep], recurrentStates[timestep])
             recurrentStates.append(recurrentState)
 
-        posteriorNetOutputs = torch.stack(posteriorNetOutputs)      # [episodeLength    , representationSize]
-        recurrentStates = torch.stack(recurrentStates)              # [episodeLength + 1, recurrentStateSize]
+        posteriorNetOutputs = torch.stack(posteriorNetOutputs)
+        recurrentStates = torch.stack(recurrentStates)
         fullStates = torch.cat((recurrentStates[1:], posteriorNetOutputs), -1)
         reconstructedObservations = self.convDecoder(fullStates)
 

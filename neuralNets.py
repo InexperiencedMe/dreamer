@@ -16,46 +16,50 @@ class SequenceModel(nn.Module):
     def forward(self, representation, action, recurrentState):
         return self.recurrent(torch.cat((representation, action), -1), recurrentState)
     
-    def initializeRecurrentState(self):
-        return torch.zeros(self.recurrentStateSize).to(device)
+    def initializeRecurrentState(self, size=1):
+        return torch.zeros((size, self.recurrentStateSize)).to(device)
 
 class PriorNet(nn.Module):
     def __init__(self, inputSize, representationLength=16, representationClasses=16):
         super().__init__()
         self.representationLength = representationLength
         self.representationClasses = representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 256], representationLength*representationClasses)
+        self.representationSize = representationLength*representationClasses
+        self.mlp = sequentialModel1D(inputSize, [512, 256], self.representationSize)
         self.uniformMix = 0.01
     
     def forward(self, x):
         rawLogits = self.mlp(x)
 
-        probabilities = rawLogits.view(self.representationLength, self.representationClasses).softmax(-1)
+        probabilities = rawLogits.view(-1, self.representationLength, self.representationClasses).softmax(-1)
         uniform = torch.ones_like(probabilities) / self.representationClasses
         finalProbabilities = (1 - self.uniformMix)*probabilities + self.uniformMix*uniform
         finalLogits = distributions.utils.probs_to_logits(finalProbabilities)
 
-        sample = F.gumbel_softmax(finalLogits.view(self.representationLength, self.representationClasses), hard=True)
-        return sample.view(-1), finalLogits
+        sample = F.gumbel_softmax(finalLogits, hard=True).view(-1, self.representationSize)
+        # print(f"prior sample {sample.shape}")
+        return sample, finalLogits
     
 class PosteriorNet(nn.Module):
     def __init__(self, inputSize, representationLength=16, representationClasses=16):
         super().__init__()
         self.representationLength = representationLength
         self.representationClasses = representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 256], representationLength*representationClasses)
+        self.representationSize = representationLength*representationClasses
+        self.mlp = sequentialModel1D(inputSize, [512, 256], self.representationSize)
         self.uniformMix = 0.01
     
     def forward(self, x):
         rawLogits = self.mlp(x)
 
-        probabilities = rawLogits.view(self.representationLength, self.representationClasses).softmax(-1)
+        probabilities = rawLogits.view(-1, self.representationLength, self.representationClasses).softmax(-1)
         uniform = torch.ones_like(probabilities) / self.representationClasses
         finalProbabilities = (1 - self.uniformMix)*probabilities + self.uniformMix*uniform
         finalLogits = distributions.utils.probs_to_logits(finalProbabilities)
 
-        sample = F.gumbel_softmax(finalLogits.view(self.representationLength, self.representationClasses), hard=True)
-        return sample.view(-1), finalLogits
+        sample = F.gumbel_softmax(finalLogits, hard=True).view(-1, self.representationSize)
+        # print(f"posterior sample {sample.shape}")
+        return sample, finalLogits
 
 
 class ConvEncoder(nn.Module):
