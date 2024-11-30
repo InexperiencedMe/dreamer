@@ -8,8 +8,8 @@ import copy
 
 class Dreamer:
     def __init__(self):
-        self.worldModelBatchSize = 4
-        self.actorCriticBatchSize = 8
+        self.worldModelBatchSize = 8
+        self.actorCriticBatchSize = 32
         self.representationLength = 16
         self.representationClasses = 16
         self.representationSize = self.representationLength * self.representationClasses
@@ -64,16 +64,16 @@ class Dreamer:
 
 
     def trainWorldModel(self, observations, actions, rewards):
-        print(f"wc input obs: {observations.shape}")
-        print(f"wc input actions: {actions.shape}")
-        print(f"wc input rewards: {rewards.shape}")
+        # print(f"wc input obs: {observations.shape}")
+        # print(f"wc input actions: {actions.shape}")
+        # print(f"wc input rewards: {rewards.shape}")
         sequenceLength = actions.shape[1]
 
         encodedObservations = self.convEncoder(observations.view(self.worldModelBatchSize*(sequenceLength + 1), *self.obsShape))
         encodedObservations = encodedObservations.view(self.worldModelBatchSize, sequenceLength + 1, -1)
-        print(f"wc init encodedObs: {encodedObservations.shape}")
+        # print(f"wc init encodedObs: {encodedObservations.shape}")
         initialRecurrentState = self.sequenceModel.initializeRecurrentState(self.worldModelBatchSize)
-        print(f"wc init recurrentState: {initialRecurrentState.shape}")
+        # print(f"wc init recurrentState: {initialRecurrentState.shape}")
 
         posteriorNetOutputs = []
         recurrentStates = [initialRecurrentState]
@@ -85,8 +85,8 @@ class Dreamer:
             posteriorNetOutputs.append(posteriorNetOutput)
             posteriorNetLogits.append(posteriorNetCurrentLogits)
 
-            if timestep == 0:
-                print(f"will be passing to seqeunce model posterior {posteriorNetOutputs[timestep].shape}, actions {actions[:, timestep].shape} and recurrent {recurrentStates[timestep].shape}")
+            # if timestep == 0:
+                # print(f"will be passing to seqeunce model posterior {posteriorNetOutputs[timestep].shape}, actions {actions[:, timestep].shape} and recurrent {recurrentStates[timestep].shape}")
     
             recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), actions[:, timestep], recurrentStates[timestep])
             recurrentStates.append(recurrentState)
@@ -95,21 +95,21 @@ class Dreamer:
             priorNetLogits.append(priorNetCurrentLogits)
 
         recurrentStates = torch.stack(recurrentStates, dim=1)               # [sequenceLength + 1, recurrentStateSize]
-        print(f"wm recurrentStates: {recurrentStates.shape}")
+        # print(f"wm recurrentStates: {recurrentStates.shape}")
         posteriorNetOutputs = torch.stack(posteriorNetOutputs, dim=1)         # [sequenceLength    , representationSize]
-        print(f"wm posteriorNetOutputs: {posteriorNetOutputs.shape}")
+        # print(f"wm posteriorNetOutputs: {posteriorNetOutputs.shape}")
         posteriorNetLogits = torch.stack(posteriorNetLogits, dim=1)          # [sequenceLength    , representationLength, representationClasses]
-        print(f"wm posteriorNetLogits: {posteriorNetLogits.shape}")
+        # print(f"wm posteriorNetLogits: {posteriorNetLogits.shape}")
         priorNetLogits = torch.stack(priorNetLogits, dim=1)                # [sequenceLength    , representationLength, representationClasses]
-        print(f"wm priorNetLogits: {priorNetLogits.shape}")
+        # print(f"wm priorNetLogits: {priorNetLogits.shape}")
         fullStates = torch.cat((recurrentStates[:, 1:], posteriorNetOutputs), -1) # [sequenceLength    , recurrentSize + representationSize]
-        print(f"wm fullStates: {fullStates.shape}")
+        # print(f"wm fullStates: {fullStates.shape}")
 
         reconstructedObservations = self.convDecoder(fullStates.view(self.worldModelBatchSize*sequenceLength, -1)) # [sequenceLength, *obsShape]
         reconstructedObservations = reconstructedObservations.view(self.worldModelBatchSize, sequenceLength, *self.obsShape)
-        print(f"wm reconstructedObservations: {reconstructedObservations.shape}")
+        # print(f"wm reconstructedObservations: {reconstructedObservations.shape}")
         predictedRewards = self.rewardPredictor(fullStates) # [sequenceLength] To match the rewards replay
-        print(f"wm predictedRewards: {predictedRewards.shape}")
+        # print(f"wm predictedRewards: {predictedRewards.shape}")
 
 
         reconstructionLoss = F.mse_loss(reconstructedObservations, observations[:, 1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
@@ -138,11 +138,11 @@ class Dreamer:
     def trainActorCritic(self, initialFullState):
         with torch.no_grad():
             fullState = initialFullState.detach()
-            print(f"ac init fullState: {fullState.shape}")
+            # print(f"ac init fullState: {fullState.shape}")
             recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
-            print(f"ac init recurrentState, latentState: {recurrentState.shape}, {latentState.shape}")
+            # print(f"ac init recurrentState, latentState: {recurrentState.shape}, {latentState.shape}")
             action = self.actor(fullState, training=False)
-            print(f"ac init action: {action.shape}")
+            # print(f"ac init action: {action.shape}")
         
         fullStates, actionLogProbabilities, entropies = [], [], []
         for _ in range(self.imaginationHorizon):
@@ -163,19 +163,19 @@ class Dreamer:
             fullState      = nextFullState
 
         fullStates = torch.stack(fullStates, dim=1)
-        print(f"ac stacked fullStates: {fullStates.shape}")
+        # print(f"ac stacked fullStates: {fullStates.shape}")
         actionLogProbabilities = torch.stack(actionLogProbabilities[:-1], dim=1)
-        print(f"ac stacked actionLogProbabilities: {actionLogProbabilities.shape}")
+        # print(f"ac stacked actionLogProbabilities: {actionLogProbabilities.shape}")
         entropies = torch.stack(entropies[:-1], dim=1)
-        print(f"ac stacked entropies: {entropies.shape}")
+        # print(f"ac stacked entropies: {entropies.shape}")
         predictedRewards = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)
-        print(f"ac stacked predictedRewards: {predictedRewards.shape}")
+        # print(f"ac stacked predictedRewards: {predictedRewards.shape}")
 
         valueEstimates = self.targetCritic(fullStates)
-        print(f"ac valueEstimates: {valueEstimates.shape}")
+        # print(f"ac valueEstimates: {valueEstimates.shape}")
         with torch.no_grad():
             lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
-            print(f"ac lambdaValues: {lambdaValues.shape}")
+            # print(f"ac lambdaValues: {lambdaValues.shape}")
             _, inverseScale = self.valueMoments(lambdaValues) # Very slow. Might as well divide by EMA of range, no quantiles
             advantages = (lambdaValues - valueEstimates[:, :-1])/inverseScale
 
@@ -218,10 +218,10 @@ class Dreamer:
         recurrentStates = [initialRecurrentState]
 
         for timestep in range(sequenceLength):
-            posteriorNetOutput, _ = self.posteriorNet(torch.cat((recurrentStates[timestep], encodedObservations[timestep]), -1))
+            posteriorNetOutput, _ = self.posteriorNet(torch.cat((recurrentStates[timestep], encodedObservations[timestep].unsqueeze(0)), -1))
             posteriorNetOutputs.append(posteriorNetOutput)
 
-            recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), actions[timestep], recurrentStates[timestep])
+            recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), torch.atleast_2d(actions[timestep]), recurrentStates[timestep])
             recurrentStates.append(recurrentState)
 
         posteriorNetOutputs = torch.stack(posteriorNetOutputs)
@@ -235,12 +235,12 @@ class Dreamer:
     def rolloutInitialize(self, initialObservation):
         encodedObservation = self.convEncoder(initialObservation)
         initialRecurrentState = self.sequenceModel.initializeRecurrentState()
-        posteriorNetOutput, _ = self.posteriorNet(torch.cat((initialRecurrentState, encodedObservation.view(-1)), -1))
+        posteriorNetOutput, _ = self.posteriorNet(torch.cat((initialRecurrentState, encodedObservation), -1))
         return initialRecurrentState, posteriorNetOutput
 
     @torch.no_grad()
     def rolloutStep(self, recurrentState, latentState, action):
-        newRecurrentState = self.sequenceModel(latentState, action, recurrentState)
+        newRecurrentState = self.sequenceModel(latentState, torch.atleast_2d(action), recurrentState)
         newLatentState, _ = self.priorNet(newRecurrentState)
 
         fullState = torch.cat((newRecurrentState, newLatentState), -1)
@@ -293,4 +293,4 @@ class Dreamer:
         self.valueMoments.load_state_dict(        checkpoint['valueMoments'])
         self.recurrentState =                     checkpoint['recurrentState']
         self.totalUpdates =                       checkpoint['totalUpdates']
-        print(f"Loaded checkpoint from: {checkpointPath}")
+        # print(f"Loaded checkpoint from: {checkpointPath}")

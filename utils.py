@@ -229,7 +229,7 @@ def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30, macroB
     frames = []
 
     while not done and frameCount < frameLimit:
-        action = actor.act(observation, reset=(frameCount == 0))
+        action = actor.act(observation, reset=(frameCount == 0)).view(-1)
         observation, reward, terminated, truncated, _ = env.step(action.cpu().numpy())
         observation = torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).to(device) / 255.0
         done = terminated or truncated
