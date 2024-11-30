@@ -85,7 +85,9 @@ class Dreamer:
             posteriorNetOutputs.append(posteriorNetOutput)
             posteriorNetLogits.append(posteriorNetCurrentLogits)
 
-            print(f"will be passing to seqeunce model posterior {posteriorNetOutputs[timestep].shape}, actions {actions[:, timestep].shape} and recurrent {recurrentStates[timestep].shape}")
+            if timestep == 0:
+                print(f"will be passing to seqeunce model posterior {posteriorNetOutputs[timestep].shape}, actions {actions[:, timestep].shape} and recurrent {recurrentStates[timestep].shape}")
+    
             recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), actions[:, timestep], recurrentStates[timestep])
             recurrentStates.append(recurrentState)
 
@@ -129,9 +131,9 @@ class Dreamer:
         worldModelLoss.backward()
         self.worldModelOptimizer.step()
 
-        sampledFullStates = fullStates[torch.randperm(fullStates.shape[0])[:self.actorCriticBatchSize]].detach() # One initial state for imagination rollout
+        sampledFullStates = fullStates.view(self.worldModelBatchSize*sequenceLength, -1)[torch.randperm(self.worldModelBatchSize*sequenceLength)[:self.actorCriticBatchSize]]
 
-        return sampledFullStates, worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item()
+        return sampledFullStates.detach(), worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item()
     
     def trainActorCritic(self, initialFullState):
         with torch.no_grad():
