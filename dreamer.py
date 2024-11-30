@@ -8,7 +8,7 @@ import copy
 
 class Dreamer:
     def __init__(self):
-        self.worldModelBatchSize = 16
+        self.worldModelBatchSize = 4
         self.actorCriticBatchSize = 8
         self.representationLength = 16
         self.representationClasses = 16
@@ -67,44 +67,50 @@ class Dreamer:
         print(f"wc input obs: {observations.shape}")
         print(f"wc input actions: {actions.shape}")
         print(f"wc input rewards: {rewards.shape}")
-        encodedObservations = self.convEncoder(observations)
-        initialRecurrentState = self.sequenceModel.initializeRecurrentState()
-        episodeLength = len(actions)
+        sequenceLength = actions.shape[1]
+
+        encodedObservations = self.convEncoder(observations.view(self.worldModelBatchSize*(sequenceLength + 1), *self.obsShape))
+        encodedObservations = encodedObservations.view(self.worldModelBatchSize, sequenceLength + 1, -1)
+        print(f"wc init encodedObs: {encodedObservations.shape}")
+        initialRecurrentState = self.sequenceModel.initializeRecurrentState(self.worldModelBatchSize)
+        print(f"wc init recurrentState: {initialRecurrentState.shape}")
 
         posteriorNetOutputs = []
         recurrentStates = [initialRecurrentState]
         priorNetLogits = []
         posteriorNetLogits = []
 
-        for timestep in range(episodeLength):
-            posteriorNetOutput, posteriorNetCurrentLogits = self.posteriorNet(torch.cat((recurrentStates[timestep], encodedObservations[timestep].unsqueeze(0)), -1))
+        for timestep in range(sequenceLength):
+            posteriorNetOutput, posteriorNetCurrentLogits = self.posteriorNet(torch.cat((recurrentStates[timestep], encodedObservations[:, timestep]), -1))
             posteriorNetOutputs.append(posteriorNetOutput)
             posteriorNetLogits.append(posteriorNetCurrentLogits)
 
-            recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), torch.atleast_2d(actions[timestep]), recurrentStates[timestep])
+            print(f"will be passing to seqeunce model posterior {posteriorNetOutputs[timestep].shape}, actions {actions[:, timestep].shape} and recurrent {recurrentStates[timestep].shape}")
+            recurrentState = self.sequenceModel(posteriorNetOutputs[timestep].detach(), actions[:, timestep], recurrentStates[timestep])
             recurrentStates.append(recurrentState)
 
-            _, priorNetCurrentLogits = self.priorNet(recurrentStates[timestep])
+            _, priorNetCurrentLogits = self.priorNet(recurrentStates[timestep + 1])
             priorNetLogits.append(priorNetCurrentLogits)
 
-        recurrentStates = torch.stack(recurrentStates).squeeze()               # [episodeLength + 1, recurrentStateSize]
+        recurrentStates = torch.stack(recurrentStates, dim=1)               # [sequenceLength + 1, recurrentStateSize]
         print(f"wm recurrentStates: {recurrentStates.shape}")
-        posteriorNetOutputs = torch.stack(posteriorNetOutputs).squeeze()       # [episodeLength    , representationSize]
+        posteriorNetOutputs = torch.stack(posteriorNetOutputs, dim=1)         # [sequenceLength    , representationSize]
         print(f"wm posteriorNetOutputs: {posteriorNetOutputs.shape}")
-        posteriorNetLogits = torch.stack(posteriorNetLogits).squeeze()         # [episodeLength    , representationLength, representationClasses]
+        posteriorNetLogits = torch.stack(posteriorNetLogits, dim=1)          # [sequenceLength    , representationLength, representationClasses]
         print(f"wm posteriorNetLogits: {posteriorNetLogits.shape}")
-        priorNetLogits = torch.stack(priorNetLogits).squeeze()                 # [episodeLength    , representationLength, representationClasses]
+        priorNetLogits = torch.stack(priorNetLogits, dim=1)                # [sequenceLength    , representationLength, representationClasses]
         print(f"wm priorNetLogits: {priorNetLogits.shape}")
-        fullStates = torch.cat((recurrentStates[1:], posteriorNetOutputs), -1).squeeze() # [episodeLength    , recurrentSize + representationSize]
+        fullStates = torch.cat((recurrentStates[:, 1:], posteriorNetOutputs), -1) # [sequenceLength    , recurrentSize + representationSize]
         print(f"wm fullStates: {fullStates.shape}")
 
-        reconstructedObservations = self.convDecoder(fullStates) # [episodeLength, *obsShape]
+        reconstructedObservations = self.convDecoder(fullStates.view(self.worldModelBatchSize*sequenceLength, -1)) # [sequenceLength, *obsShape]
+        reconstructedObservations = reconstructedObservations.view(self.worldModelBatchSize, sequenceLength, *self.obsShape)
         print(f"wm reconstructedObservations: {reconstructedObservations.shape}")
-        predictedRewards = self.rewardPredictor(fullStates) # [episodeLength] To match the rewards replay
+        predictedRewards = self.rewardPredictor(fullStates) # [sequenceLength] To match the rewards replay
         print(f"wm predictedRewards: {predictedRewards.shape}")
 
 
-        reconstructionLoss = F.mse_loss(reconstructedObservations, observations[1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
+        reconstructionLoss = F.mse_loss(reconstructedObservations, observations[:, 1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
         rewardPredictorLoss = F.mse_loss(predictedRewards, symlog(rewards))
 
         priorDistribution       = torch.distributions.Categorical(logits=priorNetLogits)
@@ -204,12 +210,12 @@ class Dreamer:
     def reconstructObservations(self, observations, actions):
         encodedObservations = self.convEncoder(observations)
         initialRecurrentState = self.sequenceModel.initializeRecurrentState().to(device)
-        episodeLength = len(actions)
+        sequenceLength = len(actions)
 
         posteriorNetOutputs = []
         recurrentStates = [initialRecurrentState]
 
-        for timestep in range(episodeLength):
+        for timestep in range(sequenceLength):
             posteriorNetOutput, _ = self.posteriorNet(torch.cat((recurrentStates[timestep], encodedObservations[timestep]), -1))
             posteriorNetOutputs.append(posteriorNetOutput)
 

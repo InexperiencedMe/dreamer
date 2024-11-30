@@ -190,6 +190,21 @@ class EpisodeBuffer:
         episodeIndex = random.randint(0, len(self) - 1)
         return self.observations[episodeIndex], self.actions[episodeIndex], self.rewards[episodeIndex]
     
+    def sampleEpisodes(self, numEpisodes):
+        if numEpisodes > len(self):
+            raise ValueError("Requested more samples than available episodes.")
+        
+        episodeIndices = random.sample(range(len(self)), numEpisodes)
+        observationsList = [self.observations[i] for i in episodeIndices]
+        actionsList = [self.actions[i] for i in episodeIndices]
+        rewardsList = [self.rewards[i] for i in episodeIndices]
+
+        observationsStacked = torch.stack(observationsList)
+        actionsStacked = torch.stack(actionsList)
+        rewardsStacked = torch.stack(rewardsList)
+
+        return observationsStacked, actionsStacked, rewardsStacked
+
     def getNewestEpisode(self):
         episodeIndex = len(self) - 1
         return self.observations[episodeIndex], self.actions[episodeIndex], self.rewards[episodeIndex]
