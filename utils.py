@@ -160,7 +160,7 @@ def plotMetrics(filename, title="", show=True, save=False, savePath="metricsPlot
         width=1920,
         legend=dict(
             x=0.98, y=0.98,
-            xanchor="right", yanchor="top",
+            xanchor="left", yanchor="bottom",
             bgcolor="rgba(0,0,0,0.5)",
             bordercolor="White",
             borderwidth=1))
