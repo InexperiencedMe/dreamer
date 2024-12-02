@@ -116,14 +116,14 @@ class Dreamer:
         rewardPredictorLoss = F.mse_loss(predictedRewards, symlog(rewards))
 
         priorDistribution       = torch.distributions.Categorical(logits=priorNetLogits)
-        posteriorDistribution   = torch.distributions.Categorical(logits=posteriorNetLogits)
         priorDistributionSG     = torch.distributions.Categorical(logits=priorNetLogits.detach())
+        posteriorDistribution   = torch.distributions.Categorical(logits=posteriorNetLogits)
         posteriorDistributionSG = torch.distributions.Categorical(logits=posteriorNetLogits.detach())
 
         priorLoss = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution)
         posteriorLoss = torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG)
         freeNats = torch.full_like(priorLoss, self.freeNats)
-        klLoss = self.betaPrior*torch.maximum(priorLoss, freeNats).mean() + self.betaPosterior*torch.maximum(posteriorLoss, freeNats).mean()
+        klLoss = (self.betaPrior*torch.maximum(priorLoss, freeNats) + self.betaPosterior*torch.maximum(posteriorLoss, freeNats)).mean()
 
         worldModelLoss =  self.betaReconstruction*reconstructionLoss + self.betaReward*rewardPredictorLoss + self.betaKL*klLoss
 

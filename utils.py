@@ -5,16 +5,12 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 from torch.distributions.normal import Normal
-from mlagents_envs.environment import UnityEnvironment, ActionTuple
-from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
-from mlagents_envs.side_channel.environment_parameters_channel import EnvironmentParametersChannel
 import csv
 from collections import deque, namedtuple
 import random
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 import plotly.graph_objects as pgo
 import imageio.v2 as imageio
 import gymnasium as gym
@@ -53,63 +49,6 @@ def sequentialModel3D(inputChannels, hiddenChannels, activationFunction = nn.Tan
 
 def calculateConvNetOutputSize(net, inputShape):
     return torch.numel(net(torch.ones(inputShape)))
-
-class UnityInterface():
-    def __init__(self, envName, seed=None):
-        self.channelEnvironment = EnvironmentParametersChannel()
-        self.channelEngine = EngineConfigurationChannel()
-        self.env = UnityEnvironment(file_name=envName, seed=seed, side_channels=[self.channelEnvironment, self.channelEngine])
-        self.env.reset()
-        self.behaviorNames = list(self.env.behavior_specs)
-        self.specs = self.prepareSpecs()
-    
-    def prepareSpecs(self):
-        specs = {}
-        for behavior in self.behaviorNames:
-            behaviorSpecs = {}
-            obsSpecs = self.env.behavior_specs[behavior].observation_specs
-            behaviorSpecs["AgentsCount"] = self.countAgents(behavior)
-            behaviorSpecs["Observations"] = [obsSpecs[i].shape for i in range(len(obsSpecs))]
-            behaviorSpecs["ContinuousActions"] = self.env.behavior_specs[behavior].action_spec.continuous_size
-            behaviorSpecs["DiscreteActions"] = self.env.behavior_specs[behavior].action_spec.discrete_branches
-            specs[behavior] = behaviorSpecs
-        return specs
-        
-    def getSpecs(self, behaviorName=None):
-        if behaviorName == None:
-            return self.specs
-        else:
-            return self.specs[behaviorName]
-    
-    def getBehaviorNames(self):
-        return self.behaviorNames
-    
-    def getSteps(self, behaviorName):
-        decisionSteps, terminalSteps = self.env.get_steps(behaviorName)
-        return decisionSteps, terminalSteps
-
-    def setActions(self, behaviorName, continuousActions = None, discreteActions = None):
-        self.env.set_actions(behaviorName, ActionTuple(continuous=continuousActions, discrete=discreteActions))
-
-    def step(self):
-        self.env.step()
-
-    def reset(self):
-        self.env.reset()
-
-    def close(self):
-        self.env.close()
-
-    def countAgents(self, behaviorName=None):
-        if behaviorName is None:
-            agentsCount = 0
-            for behavior in self.behaviorNames:
-                decisionSteps, terminalSteps = self.getSteps(behaviorName)
-                agentsCount += len(set(decisionSteps).union(set(terminalSteps)))
-        else:
-            decisionSteps, terminalSteps = self.getSteps(behaviorName)
-            agentsCount = len(set(decisionSteps).union(set(terminalSteps)))
-        return agentsCount
     
 def displayImage(imageNdarray):
     import matplotlib.pyplot as plt
