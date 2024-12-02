@@ -98,11 +98,13 @@ def plotMetrics(filename, title="", show=True, save=False, savePath="metricsPlot
         height=1080,
         width=1920,
         legend=dict(
-            x=0.98, y=0.98,
-            xanchor="left", yanchor="bottom",
-            bgcolor="rgba(0,0,0,0.5)",
+            x=0.04,
+            y=0.04,
+            xanchor="left",
+            yanchor="bottom",
+            bgcolor="rgba(0,0,0,0.8)",
             bordercolor="White",
-            borderwidth=1))
+            borderwidth=2))
 
     if save:
         if not savePath.endswith(".html"):

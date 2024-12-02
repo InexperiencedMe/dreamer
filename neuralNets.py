@@ -127,29 +127,12 @@ class RewardPredictor(nn.Module):
         nn.init.zeros_(network[-1].weight)
         nn.init.zeros_(network[-1].bias)
 
-class Actor(nn.Module):
-    def __init__(self, inputSize, actionSize):
-        super(Actor, self).__init__()
-        self.mean = sequentialModel1D(inputSize, [256, 256], actionSize)
-        self.logStd = sequentialModel1D(inputSize, [256, 256], actionSize)
-
-    def forward(self, x, training=True):
-        mean = self.mean(x)
-        std = torch.exp(self.logStd(x))
-        # print(f"actor raw output:\nmean {mean} of shape {mean.shape}\std {std} of shape {std.shape}")
-        distribution = distributions.Normal(mean, std)
-        action = distribution.sample() # Rsample when we use DreamerV1 update, normal sample when we use advantages??
-        if training:
-            # print(f"Will be returning entropy of shape: {distribution.entropy().sum(-1).shape} instead of {distribution.entropy().mean().shape} like before")
-            return action, distribution.log_prob(action).sum(-1), distribution.entropy().sum(-1)
-        else:
-            return action
 
 LOG_STD_MAX = 2
 LOG_STD_MIN = -5
-class ActorCleanRLStyle(nn.Module):
+class Actor(nn.Module):
     def __init__(self, inputSize, actionSize, actionLow=[-1], actionHigh=[1]):
-        super(ActorCleanRLStyle, self).__init__()
+        super(Actor, self).__init__()
         self.mean = sequentialModel1D(inputSize, [256, 256], actionSize)
         self.logStd = sequentialModel1D(inputSize, [256, 256], actionSize)
         self.register_buffer("actionScale", ((torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device)) / 2.0))
