@@ -1,0 +1,8 @@
+gymnasium
+torch
+matplotlib
+numpy
+imageio
+pandas
+plotly
+opencv-python
