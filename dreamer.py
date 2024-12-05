@@ -70,7 +70,7 @@ class Dreamer:
 
         encodedObservations = self.convEncoder(observations.view(self.worldModelBatchSize*sequenceLength, *self.obsShape))
         encodedObservations = encodedObservations.view(self.worldModelBatchSize, sequenceLength, -1)
-        print(f"wc init encodedObs: {encodedObservations.shape}")
+        # print(f"wc init encodedObs: {encodedObservations.shape}")
 
         posteriors, recurrentStates, priorLogits, posteriorLogits = [], [], [], []
         for timestep in range(sequenceLength - 1):
