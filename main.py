@@ -9,16 +9,16 @@ np.set_printoptions(threshold=2000, linewidth=200)
 
 environmentName         = "CarRacing-v3"
 renderMode              = None
-numUpdates              = 10000
-episodesBeforeStart     = 20
+numUpdates              = 1
+episodesBeforeStart     = 5
 playInterval            = 10
 stepCountLimit          = 256
 bufferSize              = 30
-resume                  = False
+resume                  = True
 saveMetrics             = True
 saveCheckpoints         = True
 runName                 = f"{environmentName}__AAAAAA_FULLSTATE_DETACHED"
-checkpointToLoad        = f"checkpoints/{runName}_42000"
+checkpointToLoad        = f"checkpoints/{runName}_3000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"
@@ -90,7 +90,7 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
             "valueEstimate": valueEstimate,
             "totalReward": totalReward})
         
-        # print(f"\nnewest actions:\n{episodeBuffer.getNewestEpisode()[1][:5]}")
+        print(f"\nnewest actions:\n{episodeBuffer.getNewestEpisode()[1]}")
 
     if i % checkpointInterval == 0 and i > start and saveCheckpoints:
         print(f"i {i:6}: worldModelLoss, criticLoss, actorLoss, reward = {worldModelLoss:8.4f}, {criticLoss:8.4f}, {actorLoss:8.4f}, {totalReward:.2f}")

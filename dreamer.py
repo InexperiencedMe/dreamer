@@ -62,15 +62,11 @@ class Dreamer:
         return self.actor(fullState, training=False)
 
 
-    def trainWorldModel(self, observations, actions, rewards):
-        # print(f"wc input obs: {observations.shape}")
-        # print(f"wc input actions: {actions.shape}")
-        # print(f"wc input rewards: {rewards.shape}")
-        sequenceLength = observations.shape[1] # sequenceLength obs, sequenceLength actions taken at obs, sequenceLength-1 rewards for all obs [1:]
+    def trainWorldModel(self, observations, actions, rewards):  # actions synced with obs, rewards for all obs except first
+        sequenceLength = observations.shape[1]                  # equal to stepCountLimit from main
 
         encodedObservations = self.convEncoder(observations.view(self.worldModelBatchSize*sequenceLength, *self.obsShape))
-        encodedObservations = encodedObservations.view(self.worldModelBatchSize, sequenceLength, -1)
-        # print(f"wc init encodedObs: {encodedObservations.shape}")
+        encodedObservations = encodedObservations.view(self.worldModelBatchSize, sequenceLength, -1) # [batchSize, sequenceLength, compressedObservationsSize]
 
         posteriors, recurrentStates, priorLogits, posteriorLogits = [], [], [], []
         for timestep in range(sequenceLength - 1):
@@ -95,23 +91,15 @@ class Dreamer:
             posteriorLogits.append(nextPosteriorLogits)
 
                        
-        recurrentStates = torch.stack(recurrentStates[1:], dim=1) # resyncing so now tensors are synced
-        posteriors = torch.stack(posteriors[1:], dim=1)
-        posteriorLogits = torch.stack(posteriorLogits, dim=1)
-        priorLogits = torch.stack(priorLogits, dim=1)
-        fullStates = torch.cat((recurrentStates, posteriors), -1)
-        # print(f"wm recurrentStates: {recurrentStates.shape}")
-        # print(f"wm posteriors: {posteriors.shape}")
-        # print(f"wm posteriorLogits: {posteriorLogits.shape}")
-        # print(f"wm priorLogits: {priorLogits.shape}")
-        # print(f"wm fullStates: {fullStates.shape}")
+        recurrentStates = torch.stack(recurrentStates[1:], dim=1)       # [batchSize, sequenceLength-1, recurrentStateSize] # resyncing so now tensors are synced
+        posteriors      = torch.stack(posteriors[1:], dim=1)            # [batchSize, sequenceLength-1, representationSize] # resyncing so now tensors are synced
+        posteriorLogits = torch.stack(posteriorLogits, dim=1)           # [batchSize, sequenceLength-1, representationLength, representationClasses]
+        priorLogits     = torch.stack(priorLogits, dim=1)               # [batchSize, sequenceLength-1, representationLength, representationClasses]
+        fullStates      = torch.cat((recurrentStates, posteriors), -1)  # [batchSize, sequenceLength-1, recurrentSize + representationSize]
 
         reconstructedObservations = self.convDecoder(fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1))
         reconstructedObservations = reconstructedObservations.view(self.worldModelBatchSize, sequenceLength - 1, *self.obsShape)
-        predictedRewards = self.rewardPredictor(fullStates) # [batchSize, sequenceLength] To match the rewards replay
-        # print(f"wm reconstructedObservations: {reconstructedObservations.shape}")
-        # print(f"wm predictedRewards: {predictedRewards.shape}")
-
+        predictedRewards = self.rewardPredictor(fullStates) # [batchSize, sequenceLength-1]
 
         reconstructionLoss = F.mse_loss(reconstructedObservations, observations[:, 1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
         rewardPredictorLoss = F.mse_loss(predictedRewards, symlog(rewards))
@@ -121,63 +109,47 @@ class Dreamer:
         posteriorDistribution   = torch.distributions.Categorical(logits=posteriorLogits)
         posteriorDistributionSG = torch.distributions.Categorical(logits=posteriorLogits.detach())
 
-        priorLoss = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution)
-        posteriorLoss = torch.distributions.kl_divergence(posteriorDistribution, priorDistributionSG)
-        freeNats = torch.full_like(priorLoss, self.freeNats)
-        klLoss = (self.betaPrior*torch.maximum(priorLoss, freeNats) + self.betaPosterior*torch.maximum(posteriorLoss, freeNats)).mean()
+        priorLoss       = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution)
+        posteriorLoss   = torch.distributions.kl_divergence(posteriorDistribution  , priorDistributionSG)
+        freeNats        = torch.full_like(priorLoss, self.freeNats)
+        klLoss          = (self.betaPrior*torch.maximum(priorLoss, freeNats) + self.betaPosterior*torch.maximum(posteriorLoss, freeNats)).mean()
 
-        worldModelLoss =  self.betaReconstruction*reconstructionLoss + self.betaReward*rewardPredictorLoss + self.betaKL*klLoss
+        worldModelLoss  =  self.betaReconstruction*reconstructionLoss + self.betaReward*rewardPredictorLoss + self.betaKL*klLoss
 
         self.worldModelOptimizer.zero_grad()
         worldModelLoss.backward()
         self.worldModelOptimizer.step()
 
         sampledFullStates = fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1)[torch.randperm(self.worldModelBatchSize*(sequenceLength - 1))[:self.actorCriticBatchSize]]
-
         return sampledFullStates.detach(), worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item()
     
+
     def trainActorCritic(self, initialFullState):
         with torch.no_grad():
-            fullState = initialFullState.detach()
+            fullState = initialFullState.detach()                       # [actorCriticBatchSize, recurrentSize + representationSize]
+            action = self.actor(fullState, training=False)              # [actorCriticBatchSize, actionSize]
             recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
-            action = self.actor(fullState, training=False)
-            # print(f"ac init fullState: {fullState.shape}")
-            # print(f"ac init recurrentState, latentState: {recurrentState.shape}, {latentState.shape}")
-            # print(f"ac init action: {action.shape}")
         
         fullStates, actionLogProbabilities, entropies = [], [], []
         for _ in range(self.imaginationHorizon):
-            nextRecurrentState = self.sequenceModel(latentState, action, recurrentState)
-            nextLatentState, _ = self.priorNet(nextRecurrentState)
-            nextFullState = torch.cat((nextRecurrentState, nextLatentState), -1)
-            action, logProbabilities, entropy = self.actor(nextFullState.detach())
-            # print(f"ac recurrentState: {recurrentState.shape}")
-            # print(f"ac nextLatentState: {nextLatentState.shape}")
-            # print(f"ac nextFullState: {nextFullState.shape}")
+            recurrentState = self.sequenceModel(latentState, action, recurrentState)
+            latentState, _ = self.priorNet(recurrentState)
+            fullState = torch.cat((recurrentState, latentState), -1)
+            action, logProbabilities, entropy = self.actor(fullState.detach())
 
-            fullStates.append(nextFullState)
+            fullStates.append(fullState)
             actionLogProbabilities.append(logProbabilities)
             entropies.append(entropy)
 
-            recurrentState = nextRecurrentState # Could as well delete these lines and call everything without the "next"
-            latentState    = nextLatentState
-            fullState      = nextFullState
+        fullStates              = torch.stack(fullStates, dim=1)                            # [batchSize, horizon, recurrentSize + representationSize]
+        actionLogProbabilities  = torch.stack(actionLogProbabilities[:-1], dim=1)           # [batchSize, horizon-1]
+        entropies               = torch.stack(entropies[:-1], dim=1)                        # [batchSize, horizon-1]
+        predictedRewards        = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)  # [batchSize, horizon-1]
 
-        fullStates = torch.stack(fullStates, dim=1)
-        actionLogProbabilities = torch.stack(actionLogProbabilities[:-1], dim=1)
-        entropies = torch.stack(entropies[:-1], dim=1)
-        predictedRewards = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)
-        # print(f"ac stacked fullStates: {fullStates.shape}")
-        # print(f"ac stacked actionLogProbabilities: {actionLogProbabilities.shape}")
-        # print(f"ac stacked entropies: {entropies.shape}")
-        # print(f"ac stacked predictedRewards: {predictedRewards.shape}")
-
-        valueEstimates = self.targetCritic(fullStates)
-        # print(f"ac valueEstimates: {valueEstimates.shape}")
+        valueEstimates = self.targetCritic(fullStates) # [batchSize, horizon]
         with torch.no_grad():
-            lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)
-            # print(f"ac lambdaValues: {lambdaValues.shape}")
-            _, inverseScale = self.valueMoments(lambdaValues) # Very slow. Might as well divide by EMA of range, no quantiles
+            lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_) # [batchSize, horizon-1]
+            _, inverseScale = self.valueMoments(lambdaValues)
             advantages = (lambdaValues - valueEstimates[:, :-1])/inverseScale
 
         # Actor Update
