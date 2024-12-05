@@ -9,16 +9,16 @@ np.set_printoptions(threshold=2000, linewidth=200)
 
 environmentName         = "CarRacing-v3"
 renderMode              = None
-numUpdates              = 5000
+numUpdates              = 10000
 episodesBeforeStart     = 20
 playInterval            = 10
 stepCountLimit          = 256
-bufferSize              = 20
+bufferSize              = 30
 resume                  = False
 saveMetrics             = True
 saveCheckpoints         = True
-runName                 = f"{environmentName}_BATCH_TEST_13_ReconstructingFirstObs"
-checkpointToLoad        = f"checkpoints/{runName}_2000"
+runName                 = f"{environmentName}__AAAAAA_FULLSTATE_DETACHED"
+checkpointToLoad        = f"checkpoints/{runName}_42000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"

@@ -8,7 +8,7 @@ import copy
 
 class Dreamer:
     def __init__(self):
-        self.worldModelBatchSize = 8
+        self.worldModelBatchSize = 4
         self.actorCriticBatchSize = 32
         self.representationLength = 16
         self.representationClasses = 16
@@ -86,26 +86,27 @@ class Dreamer:
                 action = actions[:, timestep]
             
             nextRecurrentState = self.sequenceModel(posterior, action, recurrentState) # recurrent state for timestep + 1
-            _, nextPriorCurrentLogits = self.priorNet(nextRecurrentState)
-            nextPosterior, nextPosteriorCurrentLogits = self.posteriorNet(torch.cat((nextRecurrentState, encodedObservations[:, timestep + 1]), -1))
+            _, nextPriorLogits = self.priorNet(nextRecurrentState)
+            nextPosterior, nextPosteriorLogits = self.posteriorNet(torch.cat((nextRecurrentState, encodedObservations[:, timestep + 1]), -1))
 
             recurrentStates.append(nextRecurrentState)
-            priorLogits.append(nextPriorCurrentLogits)
+            priorLogits.append(nextPriorLogits)
             posteriors.append(nextPosterior)
-            posteriorLogits.append(nextPosteriorCurrentLogits)
+            posteriorLogits.append(nextPosteriorLogits)
 
-        recurrentStates = torch.stack(recurrentStates[1:], dim=1) # resyncing so now tensors are synced                       # [batchSize, sequenceLength + 1, recurrentStateSize]
+                       
+        recurrentStates = torch.stack(recurrentStates[1:], dim=1) # resyncing so now tensors are synced
+        posteriors = torch.stack(posteriors[1:], dim=1)
+        posteriorLogits = torch.stack(posteriorLogits, dim=1)
+        priorLogits = torch.stack(priorLogits, dim=1)
+        fullStates = torch.cat((recurrentStates, posteriors), -1)
         # print(f"wm recurrentStates: {recurrentStates.shape}")
-        posteriors = torch.stack(posteriors[1:], dim=1)               # [batchSize, sequenceLength    , representationSize]
         # print(f"wm posteriors: {posteriors.shape}")
-        posteriorLogits = torch.stack(posteriorLogits, dim=1)                 # [batchSize, sequenceLength    , representationLength, representationClasses]
         # print(f"wm posteriorLogits: {posteriorLogits.shape}")
-        priorLogits = torch.stack(priorLogits, dim=1)                         # [batchSize, sequenceLength    , representationLength, representationClasses]
         # print(f"wm priorLogits: {priorLogits.shape}")
-        fullStates = torch.cat((recurrentStates, posteriors), -1)   # [batchSize, sequenceLength    , recurrentSize + representationSize]
         # print(f"wm fullStates: {fullStates.shape}")
 
-        reconstructedObservations = self.convDecoder(fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1)) # [batchSize, sequenceLength, *obsShape]
+        reconstructedObservations = self.convDecoder(fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1))
         reconstructedObservations = reconstructedObservations.view(self.worldModelBatchSize, sequenceLength - 1, *self.obsShape)
         predictedRewards = self.rewardPredictor(fullStates) # [batchSize, sequenceLength] To match the rewards replay
         # print(f"wm reconstructedObservations: {reconstructedObservations.shape}")
@@ -146,10 +147,10 @@ class Dreamer:
         
         fullStates, actionLogProbabilities, entropies = [], [], []
         for _ in range(self.imaginationHorizon):
-            recurrentState = self.sequenceModel(latentState, action, recurrentState)
-            nextLatentState, _ = self.priorNet(recurrentState)
-            nextFullState = torch.cat((recurrentState, nextLatentState), -1)
-            action, logProbabilities, entropy = self.actor(nextFullState)
+            nextRecurrentState = self.sequenceModel(latentState, action, recurrentState)
+            nextLatentState, _ = self.priorNet(nextRecurrentState)
+            nextFullState = torch.cat((nextRecurrentState, nextLatentState), -1)
+            action, logProbabilities, entropy = self.actor(nextFullState.detach())
             # print(f"ac recurrentState: {recurrentState.shape}")
             # print(f"ac nextLatentState: {nextLatentState.shape}")
             # print(f"ac nextFullState: {nextFullState.shape}")
@@ -158,7 +159,7 @@ class Dreamer:
             actionLogProbabilities.append(logProbabilities)
             entropies.append(entropy)
 
-            recurrentState = recurrentState
+            recurrentState = nextRecurrentState # Could as well delete these lines and call everything without the "next"
             latentState    = nextLatentState
             fullState      = nextFullState
 
