@@ -5,6 +5,7 @@ from utils import *
 import torch.distributions as distributions
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 class SequenceModel(nn.Module):
     def __init__(self, representationSize, actionSize, recurrentStateSize):
         super().__init__()
@@ -18,6 +19,7 @@ class SequenceModel(nn.Module):
     
     def initializeRecurrentState(self, size=1):
         return torch.zeros((size, self.recurrentStateSize)).to(device)
+
 
 class PriorNet(nn.Module):
     def __init__(self, inputSize, representationLength=16, representationClasses=16):
@@ -40,6 +42,7 @@ class PriorNet(nn.Module):
         # print(f"prior sample {sample.shape}")
         return sample, finalLogits
     
+
 class PosteriorNet(nn.Module):
     def __init__(self, inputSize, representationLength=16, representationClasses=16):
         super().__init__()
@@ -83,6 +86,7 @@ class ConvEncoder(nn.Module):
     def forward(self, obs):
         return self.convolutionalNet(obs.float())
 
+
 class ConvDecoder(nn.Module):
     def __init__(self, inputSize, outputShape):
         super(ConvDecoder, self).__init__()
@@ -109,6 +113,7 @@ class ConvDecoder(nn.Module):
         c, h, w = 128, self.outputShape[1] // 16, self.outputShape[2] // 16
         x = x.view(batchSize, c, h, w)
         return (self.deconvolutionalNet(x))
+
 
 class RewardPredictor(nn.Module):
     def __init__(self, inputSize):
@@ -155,6 +160,7 @@ class Actor(nn.Module):
             return action, logProbabilities.sum(-1), distribution.entropy().sum(-1)
         else:
             return action
+
 
 class Critic(nn.Module):
     def __init__(self, inputSize):

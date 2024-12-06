@@ -8,31 +8,31 @@ import copy
 
 class Dreamer:
     def __init__(self):
-        self.worldModelBatchSize = 4
-        self.actorCriticBatchSize = 32
-        self.representationLength = 16
-        self.representationClasses = 16
-        self.representationSize = self.representationLength * self.representationClasses
-        self.actionSize = 3
-        self.recurrentStateSize = 512
-        self.compressedObservationsSize = 512
-        self.obsShape = (3, 96, 96)
-        self.imaginationHorizon = 16
-        self.betaPrior = 1
-        self.betaPosterior = 0.1
-        self.betaReconstruction = 20
-        self.betaReward = 1
-        self.betaKL = 1
-        self.entropyScale = 0.0003
-        self.tau = 0.05
-        self.gamma = 0.997
-        self.lambda_ = 0.95
+        self.worldModelBatchSize        = 4
+        self.actorCriticBatchSize       = 16
+        self.representationLength       = 16
+        self.representationClasses      = 16
+        self.representationSize         = self.representationLength*self.representationClasses
+        self.actionSize                 = 3
+        self.recurrentStateSize         = 512
+        self.compressedObservationSize  = 512
+        self.obsShape                   = (3, 96, 96)
+        self.imaginationHorizon         = 16
+        self.betaPrior                  = 1
+        self.betaPosterior              = 0.1
+        self.betaReconstruction         = 20
+        self.betaReward                 = 1
+        self.betaKL                     = 1
+        self.entropyScale               = 0.0003
+        self.tau                        = 0.05
+        self.gamma                      = 0.997
+        self.lambda_                    = 0.95
         
-        self.convEncoder     = ConvEncoder(self.obsShape, self.compressedObservationsSize).to(device)
+        self.convEncoder     = ConvEncoder(self.obsShape, self.compressedObservationSize).to(device)
         self.convDecoder     = ConvDecoder(self.representationSize + self.recurrentStateSize, self.obsShape).to(device)
         self.sequenceModel   = SequenceModel(self.representationSize, self.actionSize, self.recurrentStateSize).to(device)
         self.priorNet        = PriorNet(self.recurrentStateSize, self.representationLength, self.representationClasses).to(device)
-        self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationsSize, self.representationLength, self.representationClasses).to(device)
+        self.posteriorNet    = PosteriorNet(self.recurrentStateSize + self.compressedObservationSize, self.representationLength, self.representationClasses).to(device)
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
         self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
         self.critic          = Critic(self.recurrentStateSize + self.representationSize).to(device)
@@ -42,14 +42,14 @@ class Dreamer:
         self.valueMoments    = Moments()
         self.totalUpdates    = 0
         self.freeNats        = 1
+        self.clipGradients   = False # Potentially useful, but slow and I prefer speeeeed
 
-        self.worldModelOptimizer = optim.AdamW(
-            list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
-            list(self.priorNet.parameters()) + list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()), 
-            lr=3e-4)
+        self.worldModelParams = (list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
+                                list(self.priorNet.parameters()) + list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()))
+        self.worldModelOptimizer = optim.AdamW(self.worldModelParams, lr=3e-4)
         
         self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=3e-4)
-        self.actorOptimizer = optim.AdamW(self.actor.parameters(), lr=3e-4)
+        self.actorOptimizer  = optim.AdamW(self.actor.parameters(), lr=3e-4)
 
     @torch.no_grad()
     def act(self, observation, reset=False):
@@ -66,7 +66,7 @@ class Dreamer:
         sequenceLength = observations.shape[1]                  # equal to stepCountLimit from main
 
         encodedObservations = self.convEncoder(observations.view(self.worldModelBatchSize*sequenceLength, *self.obsShape))
-        encodedObservations = encodedObservations.view(self.worldModelBatchSize, sequenceLength, -1) # [batchSize, sequenceLength, compressedObservationsSize]
+        encodedObservations = encodedObservations.view(self.worldModelBatchSize, sequenceLength, -1) # [batchSize, sequenceLength, compressedObservationSize]
 
         posteriors, recurrentStates, priorLogits, posteriorLogits = [], [], [], []
         for timestep in range(sequenceLength - 1):
@@ -118,6 +118,8 @@ class Dreamer:
 
         self.worldModelOptimizer.zero_grad()
         worldModelLoss.backward()
+        if self.clipGradients:
+            torch.nn.utils.clip_grad_norm_(self.worldModelParams, self.gradientClipValue)
         self.worldModelOptimizer.step()
 
         sampledFullStates = fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1)[torch.randperm(self.worldModelBatchSize*(sequenceLength - 1))[:self.actorCriticBatchSize]]
@@ -154,25 +156,30 @@ class Dreamer:
 
         # Actor Update
         # NOTE: Actor has to use .sample() when using advantages, .rsample() when using -lambdaValues
-        actorLoss = -torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies) # TODO: Try weighted average - we trust early lambda values more
+        actorLoss = -torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
         # actorLoss = -torch.mean(lambdaValues) # DreamerV1 style loss
+
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 100)
+        if self.clipGradients:
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.gradientClipValue)
         self.actorOptimizer.step()
 
         # Critic Update
         valuesForCriticUpdate = self.critic(fullStates[:, :-1].detach())
         criticLoss = F.mse_loss(valuesForCriticUpdate, lambdaValues.detach())
+
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 100)
+        if self.clipGradients:
+            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.gradientClipValue)
         self.criticOptimizer.step()
 
         for param, targetParam in zip(self.critic.parameters(), self.targetCritic.parameters()):
             targetParam.data.copy_(self.tau * param.data + (1 - self.tau) * targetParam.data)
 
         return criticLoss.detach().cpu().item(), actorLoss.detach().cpu().item(), valueEstimates.detach().mean().cpu().item()
+
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
         returns = torch.zeros_like(rewards)
@@ -181,6 +188,7 @@ class Dreamer:
             returns[:, i] = rewards[:, i] + gamma * ((1 - lambda_)*values[:, i] + lambda_*bootstrap)
             bootstrap = returns[:, i]
         return returns
+
 
     def reconstructObservations(self, observations, actions):
         encodedObservations = self.convEncoder(observations)
@@ -203,13 +211,15 @@ class Dreamer:
         reconstructedObservations = self.convDecoder(fullStates)
 
         return reconstructedObservations.detach()
-    
+
+
     @torch.no_grad()
     def rolloutInitialize(self, initialObservation):
         encodedObservation = self.convEncoder(initialObservation)
         initialRecurrentState = self.sequenceModel.initializeRecurrentState()
         posterior, _ = self.posteriorNet(torch.cat((initialRecurrentState, encodedObservation), -1))
         return initialRecurrentState, posterior
+
 
     @torch.no_grad()
     def rolloutStep(self, recurrentState, latentState, action):
@@ -220,6 +230,7 @@ class Dreamer:
         reconstructedObservation = self.convDecoder(torch.atleast_2d(fullState))
         predictedReward = symexp(self.rewardPredictor(fullState))
         return newRecurrentState, newLatentState, reconstructedObservation, predictedReward
+
 
     def saveCheckpoint(self, checkpointPath):
         if not checkpointPath.endswith('.pth'):
@@ -243,6 +254,7 @@ class Dreamer:
             'totalUpdates'          : self.totalUpdates
         }
         torch.save(checkpoint, checkpointPath)
+
 
     def loadCheckpoint(self, checkpointPath):
         if not checkpointPath.endswith('.pth'):

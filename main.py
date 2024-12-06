@@ -9,23 +9,25 @@ np.set_printoptions(threshold=2000, linewidth=200)
 
 environmentName         = "CarRacing-v3"
 renderMode              = None
-numUpdates              = 1
-episodesBeforeStart     = 5
-playInterval            = 10
+seed                    = 1
 stepCountLimit          = 256
+
+episodesBeforeStart     = 20
+numNewEpisodePlay       = 1
+playInterval            = 10
+saveMetricsInterval     = 10
+checkpointInterval      = 1000
 bufferSize              = 30
-resume                  = True
+
+numUpdates              = 37000
+resume                  = False
 saveMetrics             = True
 saveCheckpoints         = True
 runName                 = f"{environmentName}__AAAAAA_FULLSTATE_DETACHED"
-checkpointToLoad        = f"checkpoints/{runName}_3000"
+checkpointToLoad        = f"checkpoints/{runName}_13000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"
-saveMetricsInterval     = 10
-checkpointInterval      = 500
-numNewEpisodePlay       = 1
-seed                    = 2
 
 random.seed(seed)
 np.random.seed(seed)
@@ -65,13 +67,13 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
                 observations.append(observation)
                 actions.append(action)
                 rewards.append(reward)
-                # dones.append(done)
+                # dones.append(done) # No functionality for simplicity. Solve CarRacing first, then maybe more
                 observation = newObservation
 
-            if len(observations) == stepCountLimit: # preventing very rare cases where episode terminates early. I could also rebuild the buffer so a sequence is stitched from multiple episodes
+            if len(observations) == stepCountLimit: # preventing rare cases where episode terminates early. I could also rebuild the buffer so a sequence is stitched from multiple episodes
                 episodeBuffer.addEpisode(torch.stack(observations).squeeze(1), # observation includes initial
                                         torch.stack(actions).to(device),       # action synced with observation
-                                        torch.tensor(rewards[:-1]).to(device))      # reward only for next step (no reward for initial observation), 1 fewer reward than obs and actions
+                                        torch.tensor(rewards[:-1]).to(device)) # reward only for next step (no reward for initial observation), 1 fewer reward than obs and actions
 
     if i > start:
         selectedEpisodeObservations, selectedEpisodeActions, selectedEpisodeRewards = episodeBuffer.sampleEpisodes(dreamer.worldModelBatchSize)
@@ -90,7 +92,7 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
             "valueEstimate": valueEstimate,
             "totalReward": totalReward})
         
-        print(f"\nnewest actions:\n{episodeBuffer.getNewestEpisode()[1]}")
+        # print(f"\nnewest actions:\n{episodeBuffer.getNewestEpisode()[1]}")
 
     if i % checkpointInterval == 0 and i > start and saveCheckpoints:
         print(f"i {i:6}: worldModelLoss, criticLoss, actorLoss, reward = {worldModelLoss:8.4f}, {criticLoss:8.4f}, {actorLoss:8.4f}, {totalReward:.2f}")
