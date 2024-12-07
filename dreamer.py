@@ -13,14 +13,14 @@ class Dreamer:
         self.representationLength       = 16
         self.representationClasses      = 16
         self.representationSize         = self.representationLength*self.representationClasses
-        self.actionSize                 = 3
+        self.actionSize                 = 3             # This should be taken at initialization from gym
         self.recurrentStateSize         = 512
         self.compressedObservationSize  = 512
-        self.obsShape                   = (3, 96, 96)
+        self.obsShape                   = (3, 96, 96)   # This should be taken at initialization from gym
         self.imaginationHorizon         = 16
         self.betaPrior                  = 1
         self.betaPosterior              = 0.1
-        self.betaReconstruction         = 20
+        self.betaReconstruction         = 20            # The loss seemed so low, that I boosted its importance. Maybe I shouldnt?
         self.betaReward                 = 1
         self.betaKL                     = 1
         self.entropyScale               = 0.0003
@@ -44,8 +44,8 @@ class Dreamer:
         self.freeNats        = 1
         self.clipGradients   = False # Potentially useful, but slow and I prefer speeeeed
 
-        self.worldModelParams = (list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
-                                list(self.priorNet.parameters()) + list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()))
+        self.worldModelParams    = (list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
+                                    list(self.priorNet.parameters()) + list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()))
         self.worldModelOptimizer = optim.AdamW(self.worldModelParams, lr=3e-4)
         
         self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=3e-4)
