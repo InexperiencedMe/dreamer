@@ -9,7 +9,7 @@ np.set_printoptions(threshold=2000, linewidth=200)
 
 environmentName         = "CarRacing-v3"
 renderMode              = None
-seed                    = 1
+seed                    = 2
 stepCountLimit          = 256
 
 episodesBeforeStart     = 20
@@ -19,12 +19,12 @@ saveMetricsInterval     = 10
 checkpointInterval      = 1000
 bufferSize              = 30
 
-numUpdates              = 39000
+numUpdates              = 40000
 resume                  = True
 saveMetrics             = True
 saveCheckpoints         = True
-runName                 = f"{environmentName}__AAAAAA_FULLSTATE_DETACHED"
-checkpointToLoad        = f"checkpoints/{runName}_41000"
+runName                 = f"{environmentName}__AA_Fixed_Gradients"
+checkpointToLoad        = f"checkpoints/{runName}_20000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"

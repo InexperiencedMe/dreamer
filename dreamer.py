@@ -51,6 +51,7 @@ class Dreamer:
         self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=3e-4)
         self.actorOptimizer  = optim.AdamW(self.actor.parameters(), lr=3e-4)
 
+
     @torch.no_grad()
     def act(self, observation, reset=False):
         if reset:
@@ -71,11 +72,12 @@ class Dreamer:
         posteriors, recurrentStates, priorLogits, posteriorLogits = [], [], [], []
         for timestep in range(sequenceLength - 1):
             if timestep == 0:
-                recurrentState = self.sequenceModel.initializeRecurrentState(self.worldModelBatchSize)              # initialize the "past"
-                posterior, _ = self.posteriorNet(torch.cat((recurrentState, encodedObservations[:, timestep]), 1))  # calculate state representation based on no past and current obs
-                action = actions[:, timestep]                                                                       # action we took during the initial state
-                recurrentStates.append(recurrentState) # appending to sync index with timestep
-                posteriors.append(posterior)           # appending to sync index with timestep
+                with torch.no_grad(): # This context seems to improve it, but not completely fix it
+                    recurrentState = self.sequenceModel.initializeRecurrentState(self.worldModelBatchSize)              # initialize the "past"
+                    posterior, _ = self.posteriorNet(torch.cat((recurrentState, encodedObservations[:, timestep]), 1))  # calculate state representation based on no past and current obs
+                    action = actions[:, timestep]                                                                       # action we took during the initial state
+                    recurrentStates.append(recurrentState) # appending to sync index with timestep, even though not used later
+                    posteriors.append(posterior)           # appending to sync index with timestep, even though not used later
             else:
                 recurrentState = recurrentStates[timestep]
                 posterior = posteriors[timestep]
@@ -146,11 +148,11 @@ class Dreamer:
         fullStates              = torch.stack(fullStates, dim=1)                            # [batchSize, horizon, recurrentSize + representationSize]
         actionLogProbabilities  = torch.stack(actionLogProbabilities[:-1], dim=1)           # [batchSize, horizon-1]
         entropies               = torch.stack(entropies[:-1], dim=1)                        # [batchSize, horizon-1]
-        predictedRewards        = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)  # [batchSize, horizon-1]
 
-        valueEstimates = self.targetCritic(fullStates) # [batchSize, horizon]
         with torch.no_grad():
-            lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_) # [batchSize, horizon-1]
+            predictedRewards        = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                          # [batchSize, horizon-1]
+            valueEstimates = self.targetCritic(fullStates)                                                              # [batchSize, horizon]
+            lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)  # [batchSize, horizon-1]
             _, inverseScale = self.valueMoments(lambdaValues)
             advantages = (lambdaValues - valueEstimates[:, :-1])/inverseScale
 
