@@ -10,21 +10,21 @@ np.set_printoptions(threshold=2000, linewidth=200)
 environmentName         = "CarRacing-v3"
 renderMode              = None
 seed                    = 2
-stepCountLimit          = 256
+stepCountLimit          = 256                   # Determines sequenceLength for now
 
-episodesBeforeStart     = 20
+episodesBeforeStart     = 40
 numNewEpisodePlay       = 1
 playInterval            = 10
 saveMetricsInterval     = 10
 checkpointInterval      = 1000
-bufferSize              = 30
+bufferSize              = 40                    # 50 throws me an out of memory error (it's all on gpu), increase if possible
 
-numUpdates              = 40000
+numUpdates              = 36000
 resume                  = True
 saveMetrics             = True
 saveCheckpoints         = True
-runName                 = f"{environmentName}__AA_Fixed_Gradients"
-checkpointToLoad        = f"checkpoints/{runName}_20000"
+runName                 = f"{environmentName}_NEW_HOPE4"
+checkpointToLoad        = f"checkpoints/{runName}_114000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"
@@ -78,7 +78,7 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
     if i > start:
         selectedEpisodeObservations, selectedEpisodeActions, selectedEpisodeRewards = episodeBuffer.sampleEpisodes(dreamer.worldModelBatchSize)
         sampledFullStates, worldModelLoss, reconstructionLoss, rewardPredictionLoss, klLoss = dreamer.trainWorldModel(selectedEpisodeObservations, selectedEpisodeActions, selectedEpisodeRewards)
-        criticLoss, actorLoss, valueEstimate = dreamer.trainActorCritic(sampledFullStates)
+        criticLoss, actorLoss, targetCriticValue, criticValue = dreamer.trainActorCritic(sampledFullStates)
 
     if i % saveMetricsInterval == 0 and i > start and saveMetrics:
         saveLossesToCSV(metricsFilename, {
@@ -89,7 +89,8 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
             "klLoss"                : klLoss,
             "criticLoss"            : criticLoss,
             "actorLoss"             : actorLoss,
-            "valueEstimate"         : valueEstimate,
+            "targetCriticValue"     : targetCriticValue,
+            "criticValue"           : criticValue,
             "totalReward"           : totalReward})
         
         # print(f"\nnewest actions:\n{episodeBuffer.getNewestEpisode()[1]}")

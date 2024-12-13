@@ -8,8 +8,8 @@ import copy
 
 class Dreamer:
     def __init__(self):
-        self.worldModelBatchSize        = 4
-        self.actorCriticBatchSize       = 16
+        self.worldModelBatchSize        = 8
+        self.actorCriticBatchSize       = 32
         self.representationLength       = 16
         self.representationClasses      = 16
         self.representationSize         = self.representationLength*self.representationClasses
@@ -20,13 +20,16 @@ class Dreamer:
         self.imaginationHorizon         = 16
         self.betaPrior                  = 1
         self.betaPosterior              = 0.1
-        self.betaReconstruction         = 20            # The loss seemed so low, that I boosted its importance. Maybe I shouldnt?
+        self.betaReconstruction         = 10
         self.betaReward                 = 1
         self.betaKL                     = 1
         self.entropyScale               = 0.0003
-        self.tau                        = 0.05
+        self.tau                        = 0.02
         self.gamma                      = 0.997
         self.lambda_                    = 0.95
+        self.worldModelLR               = 1e-4
+        self.criticLR                   = 8e-5
+        self.actorLR                    = 8e-5
         
         self.convEncoder     = ConvEncoder(self.obsShape, self.compressedObservationSize).to(device)
         self.convDecoder     = ConvDecoder(self.representationSize + self.recurrentStateSize, self.obsShape).to(device)
@@ -36,20 +39,20 @@ class Dreamer:
         self.rewardPredictor = RewardPredictor(self.recurrentStateSize + self.representationSize).to(device)
         self.actor           = Actor(self.recurrentStateSize + self.representationSize, self.actionSize, actionHigh=[1, 1, 1], actionLow=[-1, 0, 0])
         self.critic          = Critic(self.recurrentStateSize + self.representationSize).to(device)
-        self.targetCritic    = copy.deepcopy(self.critic)
+        self.targetCritic    = copy.deepcopy(self.critic) # Honestly I could ditch soft update, it barely helps, but adds complexity + another lambda calculation
 
         self.recurrentState  = self.sequenceModel.initializeRecurrentState()
         self.valueMoments    = Moments()
         self.totalUpdates    = 0
         self.freeNats        = 1
-        self.clipGradients   = False # Potentially useful, but slow and I prefer speeeeed
+        self.clipGradients   = False  # Potentially useful, but slow and I prefer speeeeed
 
         self.worldModelParams    = (list(self.convEncoder.parameters()) + list(self.convDecoder.parameters()) + list(self.sequenceModel.parameters()) +
                                     list(self.priorNet.parameters()) + list(self.posteriorNet.parameters()) + list(self.rewardPredictor.parameters()))
-        self.worldModelOptimizer = optim.AdamW(self.worldModelParams, lr=3e-4)
+        self.worldModelOptimizer = optim.AdamW(self.worldModelParams, lr=self.worldModelLR)
         
-        self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=3e-4)
-        self.actorOptimizer  = optim.AdamW(self.actor.parameters(), lr=3e-4)
+        self.criticOptimizer = optim.AdamW(self.critic.parameters(), lr=self.criticLR)
+        self.actorOptimizer  = optim.AdamW(self.actor.parameters(), lr=self.actorLR)
 
 
     @torch.no_grad()
@@ -72,7 +75,7 @@ class Dreamer:
         posteriors, recurrentStates, priorLogits, posteriorLogits = [], [], [], []
         for timestep in range(sequenceLength - 1):
             if timestep == 0:
-                with torch.no_grad(): # This context seems to improve it, but not completely fix it
+                with torch.no_grad(): # idk why, but this is necessary
                     recurrentState = self.sequenceModel.initializeRecurrentState(self.worldModelBatchSize)              # initialize the "past"
                     posterior, _ = self.posteriorNet(torch.cat((recurrentState, encodedObservations[:, timestep]), 1))  # calculate state representation based on no past and current obs
                     action = actions[:, timestep]                                                                       # action we took during the initial state
@@ -103,8 +106,8 @@ class Dreamer:
         reconstructedObservations = reconstructedObservations.view(self.worldModelBatchSize, sequenceLength - 1, *self.obsShape)
         predictedRewards = self.rewardPredictor(fullStates) # [batchSize, sequenceLength-1]
 
-        reconstructionLoss = F.mse_loss(reconstructedObservations, observations[:, 1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
-        rewardPredictorLoss = F.mse_loss(predictedRewards, symlog(rewards))
+        reconstructionLoss = self.betaReconstruction*F.mse_loss(reconstructedObservations, observations[:, 1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
+        rewardPredictorLoss = self.betaReward*F.mse_loss(predictedRewards, symlog(rewards))
 
         priorDistribution       = torch.distributions.Categorical(logits=priorLogits)
         priorDistributionSG     = torch.distributions.Categorical(logits=priorLogits.detach())
@@ -114,9 +117,9 @@ class Dreamer:
         priorLoss       = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution)
         posteriorLoss   = torch.distributions.kl_divergence(posteriorDistribution  , priorDistributionSG)
         freeNats        = torch.full_like(priorLoss, self.freeNats)
-        klLoss          = (self.betaPrior*torch.maximum(priorLoss, freeNats) + self.betaPosterior*torch.maximum(posteriorLoss, freeNats)).mean()
+        klLoss          = self.betaKL*((self.betaPrior*torch.maximum(priorLoss, freeNats) + self.betaPosterior*torch.maximum(posteriorLoss, freeNats)).mean())
 
-        worldModelLoss  =  self.betaReconstruction*reconstructionLoss + self.betaReward*rewardPredictorLoss + self.betaKL*klLoss
+        worldModelLoss  =  reconstructionLoss + rewardPredictorLoss + klLoss
 
         self.worldModelOptimizer.zero_grad()
         worldModelLoss.backward()
@@ -125,14 +128,14 @@ class Dreamer:
         self.worldModelOptimizer.step()
 
         sampledFullStates = fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1)[torch.randperm(self.worldModelBatchSize*(sequenceLength - 1))[:self.actorCriticBatchSize]]
-        return sampledFullStates.detach(), worldModelLoss.item(), reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item()
+        klLossShiftForGraphing = self.betaKL*self.freeNats*(self.betaPrior + self.betaPosterior)
+        return sampledFullStates.detach(), worldModelLoss.item() - klLossShiftForGraphing, reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item() - klLossShiftForGraphing
     
 
     def trainActorCritic(self, initialFullState):
-        with torch.no_grad():
-            fullState = initialFullState.detach()                       # [actorCriticBatchSize, recurrentSize + representationSize]
-            action = self.actor(fullState, training=False)              # [actorCriticBatchSize, actionSize]
-            recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
+        fullState = initialFullState.detach()                       # [actorCriticBatchSize, recurrentSize + representationSize]
+        action = self.actor(fullState, training=False)              # [actorCriticBatchSize, actionSize]
+        recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
         
         fullStates, actionLogProbabilities, entropies = [], [], []
         for _ in range(self.imaginationHorizon):
@@ -150,11 +153,11 @@ class Dreamer:
         entropies               = torch.stack(entropies[:-1], dim=1)                        # [batchSize, horizon-1]
 
         with torch.no_grad():
-            predictedRewards        = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                          # [batchSize, horizon-1]
-            valueEstimates = self.targetCritic(fullStates)                                                              # [batchSize, horizon]
-            lambdaValues = self.lambdaValues(predictedRewards, valueEstimates, gamma=self.gamma, lambda_=self.lambda_)  # [batchSize, horizon-1]
-            _, inverseScale = self.valueMoments(lambdaValues)
-            advantages = (lambdaValues - valueEstimates[:, :-1])/inverseScale
+            predictedRewards    = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                                                  # [batchSize, horizon-1]
+            targetCriticValues  = self.targetCritic(fullStates)                                                                             # [batchSize, horizon]
+            targetLambdaValues  = self.lambdaValues(predictedRewards, targetCriticValues, gamma=self.gamma, lambda_=self.lambda_)           # [batchSize, horizon-1]
+            _, inverseScale     = self.valueMoments(targetLambdaValues)
+            advantages          = (targetLambdaValues - targetCriticValues[:, :-1])/inverseScale
 
         # Actor Update
         # NOTE: Actor has to use .sample() when using advantages, .rsample() when using -lambdaValues
@@ -168,8 +171,9 @@ class Dreamer:
         self.actorOptimizer.step()
 
         # Critic Update
-        valuesForCriticUpdate = self.critic(fullStates[:, :-1].detach())
-        criticLoss = F.mse_loss(valuesForCriticUpdate, lambdaValues.detach())
+        criticValues = self.critic(fullStates[:, :-1].detach())
+        lambdaValues = self.lambdaValues(predictedRewards, criticValues, gamma=self.gamma, lambda_=self.lambda_)
+        criticLoss = F.mse_loss(criticValues, lambdaValues.detach())
 
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
@@ -180,7 +184,7 @@ class Dreamer:
         for param, targetParam in zip(self.critic.parameters(), self.targetCritic.parameters()):
             targetParam.data.copy_(self.tau * param.data + (1 - self.tau) * targetParam.data)
 
-        return criticLoss.detach().cpu().item(), actorLoss.detach().cpu().item(), valueEstimates.detach().mean().cpu().item()
+        return criticLoss.cpu().item(), actorLoss.cpu().item(), targetCriticValues.mean().cpu().item(), criticValues.mean().cpu().item()
 
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):

@@ -39,7 +39,6 @@ class PriorNet(nn.Module):
         finalLogits = distributions.utils.probs_to_logits(finalProbabilities)
 
         sample = F.gumbel_softmax(finalLogits, hard=True).view(-1, self.representationSize)
-        # print(f"prior sample {sample.shape}")
         return sample, finalLogits
     
 
@@ -61,7 +60,6 @@ class PosteriorNet(nn.Module):
         finalLogits = distributions.utils.probs_to_logits(finalProbabilities)
 
         sample = F.gumbel_softmax(finalLogits, hard=True).view(-1, self.representationSize)
-        # print(f"posterior sample {sample.shape}")
         return sample, finalLogits
 
 
@@ -70,11 +68,11 @@ class ConvEncoder(nn.Module):
         super(ConvEncoder, self).__init__()
         c, h, w = inputShape
         self.convolutionalNet = nn.Sequential(
-            nn.Conv2d(c, 16, kernel_size=4, stride=2, padding=1),  # Output: (16, h/2, w/2)
+            nn.Conv2d(c, 16, kernel_size=4, stride=2, padding=1),    # Output: (16, h/2, w/2)
             nn.Tanh(),
-            nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1),  # Output: (32, h/4, w/4)
+            nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1),   # Output: (32, h/4, w/4)
             nn.Tanh(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),  # Output: (64, h/8, w/8)
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),   # Output: (64, h/8, w/8)
             nn.Tanh(),
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),  # Output: (128, h/16, w/16)
             nn.Tanh(),
@@ -99,11 +97,11 @@ class ConvDecoder(nn.Module):
         self.deconvolutionalNet = nn.Sequential(
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # Output: (64, h/8, w/8)
             nn.Tanh(),
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),  # Output: (32, h/4, w/4)
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),   # Output: (32, h/4, w/4)
             nn.Tanh(),
-            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),  # Output: (16, h/2, w/2)
+            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),   # Output: (16, h/2, w/2)
             nn.Tanh(),
-            nn.ConvTranspose2d(16, c, kernel_size=4, stride=2, padding=1),  # Output: (c, h, w)
+            nn.ConvTranspose2d(16, c, kernel_size=4, stride=2, padding=1),    # Output: (c, h, w)
             nn.Sigmoid(),  # Output pixel values between 0 and 1
         )
 

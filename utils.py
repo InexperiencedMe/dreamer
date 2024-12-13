@@ -12,6 +12,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.graph_objects as pgo
+import plotly.colors as pc
 import imageio.v2 as imageio
 import gymnasium as gym
 import cv2 as cv
@@ -81,13 +82,22 @@ def plotMetrics(filename, title="", show=True, save=False, savePath="metricsPlot
 
     data = pd.read_csv(filename)
     fig = pgo.Figure()
-    
-    for column in data.columns[1:]:  # Skip 'i' column
+
+    colors = pc.DEFAULT_PLOTLY_COLORS
+    num_colors = len(colors)
+
+    for idx, column in enumerate(data.columns[1:]):
         fig.add_trace(pgo.Scatter(
-            x=data["i"], y=data[column], mode='lines', name=f"{column} (original)",
-            line=dict(color='gray', width=1, dash='dot'), opacity=0.5, visible='legendonly'))
+            x=data["i"], y=data[column], mode='lines',
+            name=f"{column} (original)",
+            line=dict(color='gray', width=1, dash='dot'),
+            opacity=0.5, visible='legendonly'))
+
         smoothed_data = data[column].rolling(window=window, min_periods=1).mean()
-        fig.add_trace(pgo.Scatter(x=data["i"], y=smoothed_data, mode='lines', name=f"{column} (smoothed)", line=dict(width=2)))
+        fig.add_trace(pgo.Scatter(
+            x=data["i"], y=smoothed_data, mode='lines',
+            name=f"{column} (smoothed)",
+            line=dict(color=colors[idx % num_colors], width=2)))  # Cycle through colors
 
     fig.update_layout(
         title=f"{title}",
@@ -106,6 +116,7 @@ def plotMetrics(filename, title="", show=True, save=False, savePath="metricsPlot
             bordercolor="White",
             borderwidth=2))
 
+    # Save and/or show the plot
     if save:
         if not savePath.endswith(".html"):
             savePath += ".html"
