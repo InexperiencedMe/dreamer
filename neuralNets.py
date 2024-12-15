@@ -5,7 +5,6 @@ from utils import *
 import torch.distributions as distributions
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
 class SequenceModel(nn.Module):
     def __init__(self, representationSize, actionSize, recurrentStateSize):
         super().__init__()
@@ -27,7 +26,7 @@ class PriorNet(nn.Module):
         self.representationLength = representationLength
         self.representationClasses = representationClasses
         self.representationSize = representationLength*representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 256], self.representationSize)
+        self.mlp = sequentialModel1D(inputSize, [512, 512], self.representationSize)
         self.uniformMix = 0.01
     
     def forward(self, x):
@@ -48,7 +47,7 @@ class PosteriorNet(nn.Module):
         self.representationLength = representationLength
         self.representationClasses = representationClasses
         self.representationSize = representationLength*representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 256], self.representationSize)
+        self.mlp = sequentialModel1D(inputSize, [512, 512], self.representationSize)
         self.uniformMix = 0.01
     
     def forward(self, x):
@@ -116,11 +115,12 @@ class ConvDecoder(nn.Module):
 class RewardPredictor(nn.Module):
     def __init__(self, inputSize):
         super(RewardPredictor, self).__init__()
-        self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
+        self.mlp = sequentialModel1D(inputSize, [512, 512], 1)
         self.setLastLayerToZeros(self.mlp)
 
     def forward(self, x, useSymexp=False):
         out = self.mlp(x).squeeze(-1)
+        # print(f"in RewardPredictor:\ninput first batch last element: {x[0][-1]},\noutput:{out}")
         if useSymexp:
             return symexp(out)
         else:
@@ -136,8 +136,8 @@ LOG_STD_MIN = -5
 class Actor(nn.Module):
     def __init__(self, inputSize, actionSize, actionLow=[-1], actionHigh=[1]):
         super(Actor, self).__init__()
-        self.mean = sequentialModel1D(inputSize, [256, 256], actionSize)
-        self.logStd = sequentialModel1D(inputSize, [256, 256], actionSize)
+        self.mean = sequentialModel1D(inputSize, [512, 256], actionSize)
+        self.logStd = sequentialModel1D(inputSize, [512, 256], actionSize)
         self.register_buffer("actionScale", ((torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device)) / 2.0))
         self.register_buffer("actionBias", ((torch.tensor(actionHigh, device=device) + torch.tensor(actionLow, device=device)) / 2.0))
 
@@ -155,7 +155,7 @@ class Actor(nn.Module):
         if training:
             logProbabilities = distribution.log_prob(sample)
             logProbabilities -= torch.log(self.actionScale * (1 - sampleTanh.pow(2)) + 1e-6)
-            return action, logProbabilities.sum(-1), distribution.entropy().sum(-1)
+            return action, logProbabilities.sum(-1), distribution.entropy().sum(-1) # I really think this should be mean, but SheepRL has sum
         else:
             return action
 
@@ -163,7 +163,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, inputSize):
         super(Critic, self).__init__()
-        self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
+        self.mlp = sequentialModel1D(inputSize, [512, 512], 1)
         self.setLastLayerToZeros(self.mlp)
 
     def forward(self, x):

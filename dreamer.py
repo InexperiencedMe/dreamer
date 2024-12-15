@@ -28,8 +28,8 @@ class Dreamer:
         self.gamma                      = 0.997
         self.lambda_                    = 0.95
         self.worldModelLR               = 1e-4
-        self.criticLR                   = 8e-5
-        self.actorLR                    = 8e-5
+        self.criticLR                   = 1e-4
+        self.actorLR                    = 5e-5
         
         self.convEncoder     = ConvEncoder(self.obsShape, self.compressedObservationSize).to(device)
         self.convDecoder     = ConvDecoder(self.representationSize + self.recurrentStateSize, self.obsShape).to(device)
@@ -134,10 +134,10 @@ class Dreamer:
 
     def trainActorCritic(self, initialFullState):
         fullState = initialFullState.detach()                       # [actorCriticBatchSize, recurrentSize + representationSize]
-        action = self.actor(fullState, training=False)              # [actorCriticBatchSize, actionSize]
+        action, logProbabilities, entropy = self.actor(fullState.detach())
         recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
         
-        fullStates, actionLogProbabilities, entropies = [], [], []
+        fullStates, actionLogProbabilities, entropies = [fullState], [logProbabilities], [entropy]
         for _ in range(self.imaginationHorizon):
             recurrentState = self.sequenceModel(latentState, action, recurrentState)
             latentState, _ = self.priorNet(recurrentState)
@@ -148,19 +148,20 @@ class Dreamer:
             actionLogProbabilities.append(logProbabilities)
             entropies.append(entropy)
 
-        fullStates              = torch.stack(fullStates, dim=1)                            # [batchSize, horizon, recurrentSize + representationSize]
-        actionLogProbabilities  = torch.stack(actionLogProbabilities[:-1], dim=1)           # [batchSize, horizon-1]
-        entropies               = torch.stack(entropies[:-1], dim=1)                        # [batchSize, horizon-1]
+        fullStates              = torch.stack(fullStates[1:], dim=1)                            # [batchSize, horizon, recurrentSize + representationSize]
+        actionLogProbabilities  = torch.stack(actionLogProbabilities[:-2], dim=1)               # [batchSize, horizon-1]
+        entropies               = torch.stack(entropies[:-2], dim=1)                            # [batchSize, horizon-1]
 
         with torch.no_grad():
-            predictedRewards    = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                                                  # [batchSize, horizon-1]
             targetCriticValues  = self.targetCritic(fullStates)                                                                             # [batchSize, horizon]
+            predictedRewards    = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                                                  # [batchSize, horizon-1]
             targetLambdaValues  = self.lambdaValues(predictedRewards, targetCriticValues, gamma=self.gamma, lambda_=self.lambda_)           # [batchSize, horizon-1]
             _, inverseScale     = self.valueMoments(targetLambdaValues)
             advantages          = (targetLambdaValues - targetCriticValues[:, :-1])/inverseScale
 
         # Actor Update
         # NOTE: Actor has to use .sample() when using advantages, .rsample() when using -lambdaValues
+        # NOTE: Official paper has a mistake here. Of course we take advantage of this state and logprob of the previous action, not this action
         actorLoss = -torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
         # actorLoss = -torch.mean(lambdaValues) # DreamerV1 style loss
 
@@ -171,9 +172,9 @@ class Dreamer:
         self.actorOptimizer.step()
 
         # Critic Update
-        criticValues = self.critic(fullStates[:, :-1].detach())
+        criticValues = self.critic(fullStates.detach())
         lambdaValues = self.lambdaValues(predictedRewards, criticValues, gamma=self.gamma, lambda_=self.lambda_)
-        criticLoss = F.mse_loss(criticValues, lambdaValues.detach())
+        criticLoss = F.mse_loss(criticValues[:, :-1], lambdaValues.detach())
 
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
@@ -182,7 +183,7 @@ class Dreamer:
         self.criticOptimizer.step()
 
         for param, targetParam in zip(self.critic.parameters(), self.targetCritic.parameters()):
-            targetParam.data.copy_(self.tau * param.data + (1 - self.tau) * targetParam.data)
+            targetParam.data.copy_(self.tau*param.data + (1 - self.tau)*targetParam.data)
 
         return criticLoss.cpu().item(), actorLoss.cpu().item(), targetCriticValues.mean().cpu().item(), criticValues.mean().cpu().item()
 

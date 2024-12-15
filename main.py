@@ -9,22 +9,22 @@ np.set_printoptions(threshold=2000, linewidth=200)
 
 environmentName         = "CarRacing-v3"
 renderMode              = None
-seed                    = 2
+seed                    = 1
 stepCountLimit          = 256                   # Determines sequenceLength for now
 
-episodesBeforeStart     = 40
+episodesBeforeStart     = 10
 numNewEpisodePlay       = 1
 playInterval            = 10
 saveMetricsInterval     = 10
 checkpointInterval      = 1000
 bufferSize              = 40                    # 50 throws me an out of memory error (it's all on gpu), increase if possible
 
-numUpdates              = 36000
+numUpdates              = 60000
 resume                  = True
 saveMetrics             = True
 saveCheckpoints         = True
-runName                 = f"{environmentName}_NEW_HOPE4"
-checkpointToLoad        = f"checkpoints/{runName}_114000"
+runName                 = f"{environmentName}_NEW_RUN"
+checkpointToLoad        = f"checkpoints/{runName}_40000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"

@@ -62,9 +62,11 @@ def saveImage(imageNdarray, filename):
     image = Image.fromarray(imageNdarray)
     image.save(filename)
 
+@torch.no_grad()
 def symlog(x):
     return torch.sign(x) * torch.log1p(torch.abs(x))
 
+@torch.no_grad()
 def symexp(x):
     return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)
 
