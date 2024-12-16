@@ -12,19 +12,19 @@ renderMode              = None
 seed                    = 1
 stepCountLimit          = 256                   # Determines sequenceLength for now
 
-episodesBeforeStart     = 10
+episodesBeforeStart     = 20
 numNewEpisodePlay       = 1
 playInterval            = 10
 saveMetricsInterval     = 10
 checkpointInterval      = 1000
 bufferSize              = 40                    # 50 throws me an out of memory error (it's all on gpu), increase if possible
 
-numUpdates              = 60000
+numUpdates              = 69000
 resume                  = True
 saveMetrics             = True
 saveCheckpoints         = True
-runName                 = f"{environmentName}_NEW_RUN2_NO_INITIAL_LOGPROB"
-checkpointToLoad        = f"checkpoints/{runName}_40000"
+runName                 = f"{environmentName}_FINAL"
+checkpointToLoad        = f"checkpoints/{runName}_31000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"

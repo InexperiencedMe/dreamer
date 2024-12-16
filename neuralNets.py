@@ -120,7 +120,6 @@ class RewardPredictor(nn.Module):
 
     def forward(self, x, useSymexp=False):
         out = self.mlp(x).squeeze(-1)
-        # print(f"in RewardPredictor:\ninput first batch last element: {x[0][-1]},\noutput:{out}")
         if useSymexp:
             return symexp(out)
         else:

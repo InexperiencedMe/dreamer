@@ -133,12 +133,11 @@ class Dreamer:
     
 
     def trainActorCritic(self, initialFullState):
-        with torch.no_grad():
-            fullState = initialFullState.detach()                       # [actorCriticBatchSize, recurrentSize + representationSize]
-            action = self.actor(fullState, training=False)
-            recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
+        fullState = initialFullState.detach()   # [actorCriticBatchSize, recurrentSize + representationSize]
+        recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
+        action, logProbabilities, entropy = self.actor(fullState.detach())
 
-        fullStates, actionLogProbabilities, entropies = [], [], []
+        fullStates, actionLogProbabilities, entropies = [fullState], [logProbabilities], [entropy]
         for _ in range(self.imaginationHorizon):
             recurrentState = self.sequenceModel(latentState, action, recurrentState)
             latentState, _ = self.priorNet(recurrentState)
@@ -149,16 +148,15 @@ class Dreamer:
             actionLogProbabilities.append(logProbabilities)
             entropies.append(entropy)
 
-        fullStates              = torch.stack(fullStates[1:], dim=1)                            # [batchSize, horizon-1, recurrentSize + representationSize]
-        actionLogProbabilities  = torch.stack(actionLogProbabilities[:-2], dim=1)               # [batchSize, horizon-2]
-        entropies               = torch.stack(entropies[:-2], dim=1)                            # [batchSize, horizon-2]
+        fullStates              = torch.stack(fullStates, dim=1)                      # [batchSize, horizon+1, recurrentSize + representationSize]
+        actionLogProbabilities  = torch.stack(actionLogProbabilities[:-1], dim=1)     # [batchSize, horizon]
+        entropies               = torch.stack(entropies[:-1], dim=1)                  # [batchSize, horizon]
 
-        with torch.no_grad():
-            targetCriticValues  = self.targetCritic(fullStates)                                                                             # [batchSize, horizon-1]
-            predictedRewards    = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                                                  # [batchSize, horizon-2]
-            targetLambdaValues  = self.lambdaValues(predictedRewards, targetCriticValues, gamma=self.gamma, lambda_=self.lambda_)           # [batchSize, horizon-2]
-            _, inverseScale     = self.valueMoments(targetLambdaValues)
-            advantages          = (targetLambdaValues - targetCriticValues[:, :-1])/inverseScale
+        predictedRewards    = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                                            # [batchSize, horizon]
+        targetCriticValues  = self.targetCritic(fullStates)                                                                       # [batchSize, horizon+1]
+        targetLambdaValues  = self.lambdaValues(predictedRewards, targetCriticValues, gamma=self.gamma, lambda_=self.lambda_)     # [batchSize, horizon+1]
+        _, inverseScale     = self.valueMoments(targetLambdaValues)
+        advantages          = (targetLambdaValues[:, 1:] - targetCriticValues[:, :-1])/inverseScale
 
         # Actor Update
         # NOTE: Actor has to use .sample() when using advantages, .rsample() when using -lambdaValues
@@ -175,7 +173,7 @@ class Dreamer:
         # Critic Update
         criticValues = self.critic(fullStates.detach())
         lambdaValues = self.lambdaValues(predictedRewards, criticValues, gamma=self.gamma, lambda_=self.lambda_)
-        criticLoss = F.mse_loss(criticValues[:, :-1], lambdaValues.detach())
+        criticLoss = F.mse_loss(criticValues[:, :-1], lambdaValues[:, :-1].detach())
 
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
@@ -190,7 +188,8 @@ class Dreamer:
 
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
-        returns = torch.zeros_like(rewards)
+        returns = torch.zeros_like(values)
+        returns[:, -1] = values[:, -1]
         bootstrap = values[:, -1]
         for i in reversed(range(rewards.shape[-1])):
             returns[:, i] = rewards[:, i] + gamma*((1 - lambda_)*values[:, i] + lambda_*bootstrap)
