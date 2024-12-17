@@ -129,7 +129,13 @@ class Dreamer:
 
         sampledFullStates = fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1)[torch.randperm(self.worldModelBatchSize*(sequenceLength - 1))[:self.actorCriticBatchSize]]
         klLossShiftForGraphing = self.betaKL*self.freeNats*(self.betaPrior + self.betaPosterior)
-        return sampledFullStates.detach(), worldModelLoss.item() - klLossShiftForGraphing, reconstructionLoss.item(), rewardPredictorLoss.item(), klLoss.item() - klLossShiftForGraphing
+        metrics = {
+            "worldModelLoss"        : worldModelLoss.item() - klLossShiftForGraphing,
+            "reconstructionLoss"    : reconstructionLoss.item(),
+            "rewardPredictorLoss"   : rewardPredictorLoss.item(),
+            "averageWMreward"       : predictedRewards.mean().item(),
+            "klLoss"                : klLoss.item() - klLossShiftForGraphing}
+        return sampledFullStates.detach(), metrics
     
 
     def trainActorCritic(self, initialFullState):
@@ -184,7 +190,16 @@ class Dreamer:
         for param, targetParam in zip(self.critic.parameters(), self.targetCritic.parameters()):
             targetParam.data.copy_(self.tau*param.data + (1 - self.tau)*targetParam.data)
 
-        return criticLoss.cpu().item(), actorLoss.cpu().item(), targetCriticValues.mean().cpu().item(), criticValues.mean().cpu().item()
+        metrics = {
+            "actorLoss"         : actorLoss.item(),
+            "logprobs"          : actionLogProbabilities.mean().item(),
+            "advantages"        : advantages.mean().item(),
+            "entropy"           : entropies.mean().item(),
+            "averageACreward"   : predictedRewards.mean().item(),
+            "criticLoss"        : criticLoss.item(),
+            "targetCriticValue" : targetCriticValues.mean().item(),
+            "criticValue"       : criticValues.mean().item()}
+        return metrics
 
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):

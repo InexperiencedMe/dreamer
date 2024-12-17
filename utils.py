@@ -85,7 +85,11 @@ def plotMetrics(filename, title="", show=True, save=False, savePath="metricsPlot
     data = pd.read_csv(filename)
     fig = pgo.Figure()
 
-    colors = pc.DEFAULT_PLOTLY_COLORS
+    colors = [
+    "gold", "gray", "beige", "blueviolet", "cadetblue",
+    "chartreuse", "coral", "cornflowerblue", "crimson", "darkorange",
+    "deeppink", "dodgerblue", "forestgreen", "aquamarine", "lightseagreen",
+    "lightskyblue", "mediumorchid", "mediumspringgreen", "orangered", "violet"]
     num_colors = len(colors)
 
     for idx, column in enumerate(data.columns[1:]):

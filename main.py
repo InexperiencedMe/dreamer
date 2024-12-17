@@ -19,12 +19,12 @@ saveMetricsInterval     = 10
 checkpointInterval      = 1000
 bufferSize              = 40                    # 50 throws me an out of memory error (it's all on gpu), increase if possible
 
-numUpdates              = 69000
+numUpdates              = 2000
 resume                  = True
 saveMetrics             = True
 saveCheckpoints         = True
 runName                 = f"{environmentName}_FINAL"
-checkpointToLoad        = f"checkpoints/{runName}_31000"
+checkpointToLoad        = f"checkpoints/{runName}_72000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"
@@ -77,26 +77,18 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
 
     if i > start:
         selectedEpisodeObservations, selectedEpisodeActions, selectedEpisodeRewards = episodeBuffer.sampleEpisodes(dreamer.worldModelBatchSize)
-        sampledFullStates, worldModelLoss, reconstructionLoss, rewardPredictionLoss, klLoss = dreamer.trainWorldModel(selectedEpisodeObservations, selectedEpisodeActions, selectedEpisodeRewards)
-        criticLoss, actorLoss, targetCriticValue, criticValue = dreamer.trainActorCritic(sampledFullStates)
+        sampledFullStates, worldModelMetrics = dreamer.trainWorldModel(selectedEpisodeObservations, selectedEpisodeActions, selectedEpisodeRewards)
+        actorCriticMetrics = dreamer.trainActorCritic(sampledFullStates)
 
     if i % saveMetricsInterval == 0 and i > start and saveMetrics:
-        saveLossesToCSV(metricsFilename, {
-            "i": i,
-            "worldModelLoss"        : worldModelLoss,
-            "reconstructionLoss"    : reconstructionLoss,
-            "rewardPredictionLoss"  : rewardPredictionLoss,
-            "klLoss"                : klLoss,
-            "criticLoss"            : criticLoss,
-            "actorLoss"             : actorLoss,
-            "targetCriticValue"     : targetCriticValue,
-            "criticValue"           : criticValue,
-            "totalReward"           : totalReward})
+        metricsBase = {"i": i, "totalReward" : totalReward}
+        metricsTraining = worldModelMetrics | actorCriticMetrics
+        saveLossesToCSV(metricsFilename, metricsBase | metricsTraining)
         
         # print(f"\nnewest actions:\n{episodeBuffer.getNewestEpisode()[1]}")
 
     if i % checkpointInterval == 0 and i > start and saveCheckpoints:
-        print(f"i {i:6}: worldModelLoss, criticLoss, actorLoss, reward = {worldModelLoss:8.4f}, {criticLoss:8.4f}, {actorLoss:8.4f}, {totalReward:.2f}")
+        print(f"i {i}")
         dreamer.totalUpdates = i
         dreamer.saveCheckpoint(f"checkpoints/{runName}_{i}")
         plotMetrics(metricsFilename, show=False, save=True, savePath=f"{plotFilename}_{i}") # TODO: plot should replace the unnecessary previous file
