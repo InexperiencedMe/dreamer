@@ -10,14 +10,14 @@ class Dreamer:
     def __init__(self):
         self.worldModelBatchSize        = 8
         self.actorCriticBatchSize       = 32
-        self.representationLength       = 16
-        self.representationClasses      = 16
+        self.representationLength       = 32
+        self.representationClasses      = 32
         self.representationSize         = self.representationLength*self.representationClasses
         self.actionSize                 = 3             # This should be taken at initialization from gym
-        self.recurrentStateSize         = 512
+        self.recurrentStateSize         = 4096
         self.compressedObservationSize  = 512
         self.obsShape                   = (3, 96, 96)   # This should be taken at initialization from gym
-        self.imaginationHorizon         = 16
+        self.imaginationHorizon         = 15
         self.betaPrior                  = 1
         self.betaPosterior              = 0.1
         self.betaReconstruction         = 10
@@ -95,7 +95,6 @@ class Dreamer:
             posteriors.append(nextPosterior)
             posteriorLogits.append(nextPosteriorLogits)
 
-                       
         recurrentStates = torch.stack(recurrentStates[1:], dim=1)       # [batchSize, sequenceLength-1, recurrentStateSize] # resyncing so now tensors are synced
         posteriors      = torch.stack(posteriors[1:], dim=1)            # [batchSize, sequenceLength-1, representationSize] # resyncing so now tensors are synced
         posteriorLogits = torch.stack(posteriorLogits, dim=1)           # [batchSize, sequenceLength-1, representationLength, representationClasses]
@@ -166,7 +165,7 @@ class Dreamer:
 
         # Actor Update
         # NOTE: Actor has to use .sample() when using advantages, .rsample() when using -lambdaValues
-        # NOTE: Official paper has a mistake here. Of course we take advantage of this state and logprob of the previous action, not this action
+        # NOTE: Official paper has a mistake here. ActorLoss is difference between next lambda and current value, multiplied by logprob of action that caused state transition
         actorLoss = -torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
         # actorLoss = -torch.mean(lambdaValues) # DreamerV1 style loss
 
@@ -203,6 +202,7 @@ class Dreamer:
 
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
+        # One less reward than values, since last return doesnt use rewards
         returns = torch.zeros_like(values)
         returns[:, -1] = values[:, -1]
         bootstrap = values[:, -1]

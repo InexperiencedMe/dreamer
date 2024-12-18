@@ -26,7 +26,7 @@ class PriorNet(nn.Module):
         self.representationLength = representationLength
         self.representationClasses = representationClasses
         self.representationSize = representationLength*representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 512], self.representationSize)
+        self.mlp = sequentialModel1D(inputSize, [512, 512, 512], self.representationSize)
         self.uniformMix = 0.01
     
     def forward(self, x):
@@ -47,7 +47,7 @@ class PosteriorNet(nn.Module):
         self.representationLength = representationLength
         self.representationClasses = representationClasses
         self.representationSize = representationLength*representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 512], self.representationSize)
+        self.mlp = sequentialModel1D(inputSize, [512, 512, 512], self.representationSize)
         self.uniformMix = 0.01
     
     def forward(self, x):
