@@ -154,7 +154,7 @@ class Actor(nn.Module):
         if training:
             logProbabilities = distribution.log_prob(sample)
             logProbabilities -= torch.log(self.actionScale * (1 - sampleTanh.pow(2)) + 1e-6)
-            return action, logProbabilities.sum(-1), distribution.entropy().sum(-1) # I really think this should be mean, but SheepRL has sum
+            return action, logProbabilities.sum(-1), distribution.entropy().sum(-1)
         else:
             return action
 

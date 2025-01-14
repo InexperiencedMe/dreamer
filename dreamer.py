@@ -8,13 +8,13 @@ import copy
 
 class Dreamer:
     def __init__(self):
-        self.worldModelBatchSize        = 8
-        self.actorCriticBatchSize       = 32
-        self.representationLength       = 32
-        self.representationClasses      = 32
+        self.worldModelBatchSize        = 4
+        self.actorCriticBatchSize       = 8
+        self.representationLength       = 16
+        self.representationClasses      = 16
         self.representationSize         = self.representationLength*self.representationClasses
         self.actionSize                 = 3             # This should be taken at initialization from gym
-        self.recurrentStateSize         = 4096
+        self.recurrentStateSize         = 1024          # 4096 in the final version, but decrease for faster development
         self.compressedObservationSize  = 512
         self.obsShape                   = (3, 96, 96)   # This should be taken at initialization from gym
         self.imaginationHorizon         = 15
@@ -29,7 +29,7 @@ class Dreamer:
         self.lambda_                    = 0.95
         self.worldModelLR               = 1e-4
         self.criticLR                   = 1e-4
-        self.actorLR                    = 5e-5
+        self.actorLR                    = 1e-4
         
         self.convEncoder     = ConvEncoder(self.obsShape, self.compressedObservationSize).to(device)
         self.convDecoder     = ConvDecoder(self.representationSize + self.recurrentStateSize, self.obsShape).to(device)
@@ -157,17 +157,14 @@ class Dreamer:
         actionLogProbabilities  = torch.stack(actionLogProbabilities[:-1], dim=1)     # [batchSize, horizon]
         entropies               = torch.stack(entropies[:-1], dim=1)                  # [batchSize, horizon]
 
-        predictedRewards    = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                                            # [batchSize, horizon]
-        targetCriticValues  = self.targetCritic(fullStates)                                                                       # [batchSize, horizon+1]
-        targetLambdaValues  = self.lambdaValues(predictedRewards, targetCriticValues, gamma=self.gamma, lambda_=self.lambda_)     # [batchSize, horizon+1]
+        predictedRewards    = self.rewardPredictor(fullStates[:, :-1], useSymexp=True)                                            # [batchSize, horizon-1]
+        targetCriticValues  = self.targetCritic(fullStates)                                                                       # [batchSize, horizon  ]
+        targetLambdaValues  = self.lambdaValues(predictedRewards, targetCriticValues, gamma=self.gamma, lambda_=self.lambda_)     # [batchSize, horizon-1]
         _, inverseScale     = self.valueMoments(targetLambdaValues)
-        advantages          = (targetLambdaValues[:, 1:] - targetCriticValues[:, :-1])/inverseScale
+        advantages          = (targetLambdaValues - targetCriticValues[:, :-1])/inverseScale
 
         # Actor Update
-        # NOTE: Actor has to use .sample() when using advantages, .rsample() when using -lambdaValues
-        # NOTE: Official paper has a mistake here. ActorLoss is difference between next lambda and current value, multiplied by logprob of action that caused state transition
         actorLoss = -torch.mean(advantages.detach()*actionLogProbabilities + self.entropyScale*entropies)
-        # actorLoss = -torch.mean(lambdaValues) # DreamerV1 style loss
 
         self.actorOptimizer.zero_grad()
         actorLoss.backward()
@@ -178,7 +175,7 @@ class Dreamer:
         # Critic Update
         criticValues = self.critic(fullStates.detach())
         lambdaValues = self.lambdaValues(predictedRewards, criticValues, gamma=self.gamma, lambda_=self.lambda_)
-        criticLoss = F.mse_loss(criticValues[:, :-1], lambdaValues[:, :-1].detach())
+        criticLoss = F.mse_loss(criticValues[:, :-1], lambdaValues.detach())
 
         self.criticOptimizer.zero_grad()
         criticLoss.backward()
@@ -202,9 +199,8 @@ class Dreamer:
 
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
-        # One less reward than values, since last return doesnt use rewards
-        returns = torch.zeros_like(values)
-        returns[:, -1] = values[:, -1]
+        # One less reward than values, since last value is a bootstrap
+        returns = torch.zeros_like(rewards)
         bootstrap = values[:, -1]
         for i in reversed(range(rewards.shape[-1])):
             returns[:, i] = rewards[:, i] + gamma*((1 - lambda_)*values[:, i] + lambda_*bootstrap)
@@ -291,12 +287,12 @@ class Dreamer:
         self.priorNet.load_state_dict(            checkpoint['priorNet'])
         self.posteriorNet.load_state_dict(        checkpoint['posteriorNet'])
         self.rewardPredictor.load_state_dict(     checkpoint['rewardPredictor'])
-        self.actor.load_state_dict(               checkpoint['actor'])
+        # self.actor.load_state_dict(               checkpoint['actor'])
         self.critic.load_state_dict(              checkpoint['critic'])
         self.targetCritic.load_state_dict(        checkpoint['targetCritic'])
         self.worldModelOptimizer.load_state_dict( checkpoint['worldModelOptimizer'])
         self.criticOptimizer.load_state_dict(     checkpoint['criticOptimizer'])
-        self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])
+        # self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])
         self.valueMoments.load_state_dict(        checkpoint['valueMoments'])
         self.recurrentState =                     checkpoint['recurrentState']
         self.totalUpdates =                       checkpoint['totalUpdates']

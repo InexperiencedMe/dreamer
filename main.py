@@ -17,14 +17,15 @@ numNewEpisodePlay       = 1
 playInterval            = 10
 saveMetricsInterval     = 10
 checkpointInterval      = 1000
-bufferSize              = 40                    # 50 throws me an out of memory error (it's all on gpu), increase if possible
+bufferSize              = 100
 
-numUpdates              = 2000
-resume                  = True
+numUpdates              = 10000
+resume                  = False
 saveMetrics             = True
 saveCheckpoints         = True
-runName                 = f"{environmentName}_FINAL"
-checkpointToLoad        = f"checkpoints/{runName}_72000"
+runName                 = f"{environmentName}_ActorDreamerV1_Attempt2"
+# checkpointToLoad        = f"checkpoints/CarRacing-v3_Hmmmmmm_68000"
+checkpointToLoad        = f"checkpoints/{runName}_69000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"
@@ -71,13 +72,13 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
                 observation = newObservation
 
             if len(observations) == stepCountLimit: # preventing rare cases where episode terminates early. I could also rebuild the buffer so a sequence is stitched from multiple episodes
-                episodeBuffer.addEpisode(torch.stack(observations).squeeze(1),  # observation includes initial
-                                         torch.stack(actions).to(device),       # action synced with observation
-                                         torch.tensor(rewards[:-1]).to(device)) # reward only for next step (no reward for initial observation), 1 fewer reward than obs and actions
+                episodeBuffer.addEpisode(torch.stack(observations).cpu().squeeze(1),    # observation includes initial
+                                         torch.stack(actions),                          # action synced with observation
+                                         torch.tensor(rewards[:-1]))                    # reward only for next step (no reward for initial observation), 1 fewer reward than obs and actions
 
     if i > start:
         selectedEpisodeObservations, selectedEpisodeActions, selectedEpisodeRewards = episodeBuffer.sampleEpisodes(dreamer.worldModelBatchSize)
-        sampledFullStates, worldModelMetrics = dreamer.trainWorldModel(selectedEpisodeObservations, selectedEpisodeActions, selectedEpisodeRewards)
+        sampledFullStates, worldModelMetrics = dreamer.trainWorldModel(selectedEpisodeObservations.to(device), selectedEpisodeActions.to(device), selectedEpisodeRewards.to(device))
         actorCriticMetrics = dreamer.trainActorCritic(sampledFullStates)
 
     if i % saveMetricsInterval == 0 and i > start and saveMetrics:
