@@ -14,16 +14,16 @@ stepCountLimit          = 256                   # Determines sequenceLength for 
 
 episodesBeforeStart     = 20
 numNewEpisodePlay       = 1
-playInterval            = 10
-saveMetricsInterval     = 10
+playInterval            = 20
+saveMetricsInterval     = 20
 checkpointInterval      = 1000
 bufferSize              = 100
 
-numUpdates              = 10000
+numUpdates              = 2000
 resume                  = False
 saveMetrics             = True
 saveCheckpoints         = True
-runName                 = f"{environmentName}_ActorDreamerV1_Attempt2"
+runName                 = f"{environmentName}_speedTest"
 # checkpointToLoad        = f"checkpoints/CarRacing-v3_Hmmmmmm_68000"
 checkpointToLoad        = f"checkpoints/{runName}_69000"
 metricsFilename         = f"metrics/{runName}"
@@ -54,13 +54,13 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
     for _ in range(numNewEpisodePlay):
         if i % playInterval == 0 or i < start:
             observation, info = env.reset(seed=seed + abs(i))
-            observation = torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).to(device).float()/255.0
+            observation = F.interpolate(torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).float()/255.0, size=(32, 32), mode='bilinear').to(device)
             observations, actions, rewards, dones = [], [], [], []
             stepCount, totalReward, done = 0, 0, False
             while not done:
                 action = dreamer.act(observation, reset=(stepCount == 0)).view(-1)
                 newObservation, reward, terminated, truncated, info = env.step(action.cpu().numpy())
-                newObservation = torch.from_numpy(np.transpose(newObservation, (2, 0, 1))).unsqueeze(0).to(device).float()/255.0
+                newObservation = F.interpolate(torch.from_numpy(np.transpose(newObservation, (2, 0, 1))).unsqueeze(0).float()/255.0, size=(32, 32), mode='bilinear').to(device)
                 stepCount += 1
                 done = terminated or truncated or stepCount >= stepCountLimit
                 totalReward += reward

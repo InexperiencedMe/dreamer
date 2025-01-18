@@ -26,7 +26,7 @@ class PriorNet(nn.Module):
         self.representationLength = representationLength
         self.representationClasses = representationClasses
         self.representationSize = representationLength*representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 512, 512], self.representationSize)
+        self.mlp = sequentialModel1D(inputSize, [512, 256], self.representationSize)
         self.uniformMix = 0.01
     
     def forward(self, x):
@@ -47,7 +47,7 @@ class PosteriorNet(nn.Module):
         self.representationLength = representationLength
         self.representationClasses = representationClasses
         self.representationSize = representationLength*representationClasses
-        self.mlp = sequentialModel1D(inputSize, [512, 512, 512], self.representationSize)
+        self.mlp = sequentialModel1D(inputSize, [512, 256], self.representationSize)
         self.uniformMix = 0.01
     
     def forward(self, x):
@@ -67,16 +67,16 @@ class ConvEncoder(nn.Module):
         super(ConvEncoder, self).__init__()
         c, h, w = inputShape
         self.convolutionalNet = nn.Sequential(
-            nn.Conv2d(c, 16, kernel_size=4, stride=2, padding=1),    # Output: (16, h/2, w/2)
+            nn.Conv2d(c, 8, kernel_size=4, stride=2, padding=1),    # Output: (8, h/2, w/2)
             nn.Tanh(),
-            nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1),   # Output: (32, h/4, w/4)
+            nn.Conv2d(8, 16, kernel_size=4, stride=2, padding=1),    # Output: (16, h/4, w/4)
             nn.Tanh(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),   # Output: (64, h/8, w/8)
+            nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1),   # Output: (32, h/8, w/8)
             nn.Tanh(),
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),  # Output: (128, h/16, w/16)
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),   # Output: (64, h/16, w/16)
             nn.Tanh(),
             nn.Flatten(),
-            nn.Linear(128 * (h // 16) * (w // 16), outputSize),
+            nn.Linear(64 * (h // 16) * (w // 16), outputSize),
             nn.Tanh(),
         )
 
@@ -90,24 +90,24 @@ class ConvDecoder(nn.Module):
         self.outputShape = outputShape
         c, h, w = outputShape
         self.fc = nn.Sequential(
-            nn.Linear(inputSize, 128 * (h // 16) * (w // 16)),
+            nn.Linear(inputSize, 64 * (h // 16) * (w // 16)),
             nn.Tanh(),
         )
         self.deconvolutionalNet = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # Output: (64, h/8, w/8)
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),   # Output: (32, h/8, w/8)
             nn.Tanh(),
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),   # Output: (32, h/4, w/4)
+            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),   # Output: (16, h/4, w/4)
             nn.Tanh(),
-            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),   # Output: (16, h/2, w/2)
+            nn.ConvTranspose2d(16, 8, kernel_size=4, stride=2, padding=1),    # Output: (8, h/2, w/2)
             nn.Tanh(),
-            nn.ConvTranspose2d(16, c, kernel_size=4, stride=2, padding=1),    # Output: (c, h, w)
+            nn.ConvTranspose2d(8, c, kernel_size=4, stride=2, padding=1),     # Output: (c, h, w)
             nn.Sigmoid(),  # Output pixel values between 0 and 1
         )
 
     def forward(self, x):
         x = self.fc(x)
         batchSize = x.size(0)
-        c, h, w = 128, self.outputShape[1] // 16, self.outputShape[2] // 16
+        c, h, w = 64, self.outputShape[1] // 16, self.outputShape[2] // 16
         x = x.view(batchSize, c, h, w)
         return (self.deconvolutionalNet(x))
 
@@ -115,7 +115,7 @@ class ConvDecoder(nn.Module):
 class RewardPredictor(nn.Module):
     def __init__(self, inputSize):
         super(RewardPredictor, self).__init__()
-        self.mlp = sequentialModel1D(inputSize, [512, 512], 1)
+        self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
         self.setLastLayerToZeros(self.mlp)
 
     def forward(self, x, useSymexp=False):
@@ -135,8 +135,8 @@ LOG_STD_MIN = -5
 class Actor(nn.Module):
     def __init__(self, inputSize, actionSize, actionLow=[-1], actionHigh=[1]):
         super(Actor, self).__init__()
-        self.mean = sequentialModel1D(inputSize, [512, 256], actionSize)
-        self.logStd = sequentialModel1D(inputSize, [512, 256], actionSize)
+        self.mean = sequentialModel1D(inputSize, [256, 256], actionSize)
+        self.logStd = sequentialModel1D(inputSize, [256, 256], actionSize)
         self.register_buffer("actionScale", ((torch.tensor(actionHigh, device=device) - torch.tensor(actionLow, device=device)) / 2.0))
         self.register_buffer("actionBias", ((torch.tensor(actionHigh, device=device) + torch.tensor(actionLow, device=device)) / 2.0))
 
@@ -162,7 +162,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, inputSize):
         super(Critic, self).__init__()
-        self.mlp = sequentialModel1D(inputSize, [512, 512], 1)
+        self.mlp = sequentialModel1D(inputSize, [256, 256], 1)
         self.setLastLayerToZeros(self.mlp)
 
     def forward(self, x):

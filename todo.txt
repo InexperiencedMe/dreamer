@@ -1,12 +1,12 @@
-- Increase sizes like in the paper: 4096 recurrent units (split across 8 blocks, then summed)
 - Implement dones and continuation prediction
-    - Then train on 64 sequence lengths only, but taken randomly from the buffer (This way we will be able to have to bigger buffer with more variety, making learning more stable)
+    - Then train on 64 sequence lengths only, but taken randomly from the buffer
 - Twohot rewards with exponentially spaced bins
 - Twohot critic with exponentially spaced bins
 - Logprob training, not mse loss
 
 
 Also quality of life features like:
+- Add function processing gym obs, dont write the line explicitly
 - Better readme
 - Automatically create folders
 - New plots should replace old ones to not have unnecessary files

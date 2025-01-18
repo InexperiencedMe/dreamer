@@ -10,13 +10,13 @@ class Dreamer:
     def __init__(self):
         self.worldModelBatchSize        = 4
         self.actorCriticBatchSize       = 8
-        self.representationLength       = 16
-        self.representationClasses      = 16
+        self.representationLength       = 8
+        self.representationClasses      = 8
         self.representationSize         = self.representationLength*self.representationClasses
         self.actionSize                 = 3             # This should be taken at initialization from gym
-        self.recurrentStateSize         = 1024          # 4096 in the final version, but decrease for faster development
+        self.recurrentStateSize         = 512          # 4096 in the final version, but decrease for faster development
         self.compressedObservationSize  = 512
-        self.obsShape                   = (3, 96, 96)   # This should be taken at initialization from gym
+        self.obsShape                   = (3, 32, 32)   # This should be taken at initialization from gym
         self.imaginationHorizon         = 15
         self.betaPrior                  = 1
         self.betaPosterior              = 0.1

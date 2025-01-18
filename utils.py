@@ -182,14 +182,14 @@ def saveVideoFrom4DTensor(observations, filename, fps=30):
 def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30, macroBlockSize=16):
     env = gym.make(envName, render_mode="rgb_array")
     observation, _ = env.reset()
-    observation = torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).to(device) / 255.0
+    observation = F.interpolate(torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).float()/255.0, size=(32, 32), mode='bilinear').to(device)
     done, frameCount, totalReward = False, 0, 0
     frames = []
 
     while not done and frameCount < frameLimit:
         action = actor.act(observation, reset=(frameCount == 0)).view(-1)
         observation, reward, terminated, truncated, _ = env.step(action.cpu().numpy())
-        observation = torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).to(device) / 255.0
+        observation = F.interpolate(torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).float()/255.0, size=(32, 32), mode='bilinear').to(device)
         done = terminated or truncated
         totalReward += reward
         frame = env.render()
