@@ -12,7 +12,7 @@ renderMode              = None
 seed                    = 1
 stepCountLimit          = 256                   # Determines sequenceLength for now
 
-episodesBeforeStart     = 20
+episodesBeforeStart     = 50
 numNewEpisodePlay       = 1
 playInterval            = 20
 saveMetricsInterval     = 20

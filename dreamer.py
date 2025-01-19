@@ -287,12 +287,12 @@ class Dreamer:
         self.priorNet.load_state_dict(            checkpoint['priorNet'])
         self.posteriorNet.load_state_dict(        checkpoint['posteriorNet'])
         self.rewardPredictor.load_state_dict(     checkpoint['rewardPredictor'])
-        # self.actor.load_state_dict(               checkpoint['actor'])
+        self.actor.load_state_dict(               checkpoint['actor'])
         self.critic.load_state_dict(              checkpoint['critic'])
         self.targetCritic.load_state_dict(        checkpoint['targetCritic'])
         self.worldModelOptimizer.load_state_dict( checkpoint['worldModelOptimizer'])
         self.criticOptimizer.load_state_dict(     checkpoint['criticOptimizer'])
-        # self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])
+        self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])
         self.valueMoments.load_state_dict(        checkpoint['valueMoments'])
         self.recurrentState =                     checkpoint['recurrentState']
         self.totalUpdates =                       checkpoint['totalUpdates']
