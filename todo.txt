@@ -1,3 +1,5 @@
+- Try simple dreamer behavior learning
+
 - Implement dones and continuation prediction
     - Then train on 64 sequence lengths only, but taken randomly from the buffer
 - Twohot rewards with exponentially spaced bins

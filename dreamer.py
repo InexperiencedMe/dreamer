@@ -65,8 +65,71 @@ class Dreamer:
         fullState = torch.cat((self.recurrentState, latentState), -1)
         return self.actor(fullState, training=False)
 
+    def trainWorldModel(self, observations, actions, rewards):
+        sequenceLength = observations.shape[1] 
+        recurrentState = torch.zeros(self.worldModelBatchSize, self.recurrentStateSize).to(device)
+        prior = torch.zeros(self.worldModelBatchSize, self.representationSize).to(device)
 
-    def trainWorldModel(self, observations, actions, rewards):  # actions synced with obs, rewards for all obs except first
+        encodedObservations = self.convEncoder(observations.view(self.worldModelBatchSize*sequenceLength, *self.obsShape))
+        encodedObservations = encodedObservations.view(self.worldModelBatchSize, sequenceLength, -1) # [batchSize, sequenceLength, compressedObservationSize]
+
+        recurrentStates, priors, priorsLogits, posteriors, posteriorsLogits = [], [], [], [], []
+        for timestep in range(1, sequenceLength):
+            recurrentState = self.sequenceModel(prior, actions[:, timestep - 1], recurrentState)
+            prior, priorLogits = self.priorNet(recurrentState)
+            posterior, posteriorLogits = self.posteriorNet(torch.cat((recurrentState, encodedObservations[:, timestep]), -1))
+
+            recurrentStates.append(recurrentState)
+            priors.append(prior)
+            priorsLogits.append(priorLogits)
+            posteriors.append(posterior)
+            posteriorsLogits.append(posteriorLogits)
+
+            prior = posterior
+
+        recurrentStates     = torch.stack(recurrentStates, dim=1)
+        priors              = torch.stack(priors, dim=1)
+        posteriors          = torch.stack(posteriors, dim=1)
+        priorsLogits        = torch.stack(priorsLogits, dim=1)
+        posteriorsLogits    = torch.stack(posteriorsLogits, dim=1)
+        fullStates          = torch.cat((recurrentStates, posteriors), -1)
+
+        reconstructedObservations = self.convDecoder(fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1))
+        reconstructedObservations = reconstructedObservations.view(self.worldModelBatchSize, sequenceLength - 1, *self.obsShape)
+        predictedRewards = self.rewardPredictor(fullStates) # [batchSize, sequenceLength-1]
+
+        reconstructionLoss = self.betaReconstruction*F.mse_loss(reconstructedObservations, observations[:, 1:], reduction="none").mean(dim=[-3, -2, -1]).mean()
+        rewardPredictorLoss = self.betaReward*F.mse_loss(predictedRewards, symlog(rewards))
+
+        priorDistribution       = torch.distributions.Categorical(logits=priorsLogits)
+        priorDistributionSG     = torch.distributions.Categorical(logits=priorsLogits.detach())
+        posteriorDistribution   = torch.distributions.Categorical(logits=posteriorsLogits)
+        posteriorDistributionSG = torch.distributions.Categorical(logits=posteriorsLogits.detach())
+
+        priorLoss       = torch.distributions.kl_divergence(posteriorDistributionSG, priorDistribution)
+        posteriorLoss   = torch.distributions.kl_divergence(posteriorDistribution  , priorDistributionSG)
+        freeNats        = torch.full_like(priorLoss, self.freeNats)
+        klLoss          = self.betaKL*((self.betaPrior*torch.maximum(priorLoss, freeNats) + self.betaPosterior*torch.maximum(posteriorLoss, freeNats)).mean())
+
+        worldModelLoss  =  reconstructionLoss + rewardPredictorLoss + klLoss
+
+        self.worldModelOptimizer.zero_grad()
+        worldModelLoss.backward()
+        if self.clipGradients:
+            torch.nn.utils.clip_grad_norm_(self.worldModelParams, self.gradientClipValue)
+        self.worldModelOptimizer.step()
+
+        sampledFullStates = fullStates.view(self.worldModelBatchSize*(sequenceLength - 1), -1)[torch.randperm(self.worldModelBatchSize*(sequenceLength - 1))[:self.actorCriticBatchSize]]
+        klLossShiftForGraphing = self.betaKL*self.freeNats*(self.betaPrior + self.betaPosterior)
+        metrics = {
+            "worldModelLoss"        : worldModelLoss.item() - klLossShiftForGraphing,
+            "reconstructionLoss"    : reconstructionLoss.item(),
+            "rewardPredictorLoss"   : rewardPredictorLoss.item(),
+            "averageWMreward"       : predictedRewards.mean().item(),
+            "klLoss"                : klLoss.item() - klLossShiftForGraphing}
+        return sampledFullStates.detach(), metrics
+
+    def trainWorldModelOld(self, observations, actions, rewards):  # actions synced with obs, rewards for all obs except first
         sequenceLength = observations.shape[1]                  # equal to stepCountLimit from main
 
         encodedObservations = self.convEncoder(observations.view(self.worldModelBatchSize*sequenceLength, *self.obsShape))
@@ -140,6 +203,58 @@ class Dreamer:
     def trainActorCritic(self, initialFullState):
         fullState = initialFullState.detach()   # [actorCriticBatchSize, recurrentSize + representationSize]
         recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
+
+        fullStates, actionLogProbabilities, entropies = [], [], []
+        for _ in range(self.imaginationHorizon):
+            action, logProbabilities, entropy = self.actor(fullState)
+            recurrentState = self.sequenceModel(latentState, action, recurrentState)
+            latentState, _ = self.priorNet(recurrentState)
+            fullStates.append(torch.cat((recurrentState, latentState), -1))
+            actionLogProbabilities.append(logProbabilities)
+            entropies.append(entropy)
+
+        fullStates = torch.stack(fullStates, dim=1)
+        actionLogProbabilities = torch.stack(actionLogProbabilities, dim=1)
+        entropies = torch.stack(entropies, dim=1)
+
+        predictedRewards = self.rewardPredictor(fullStates, useSymexp=True)
+        values = self.critic(fullStates)
+        continues = self.gamma*torch.ones_like(values)
+
+        lambdaValues = self.compute_lambda_values(
+            predictedRewards,
+            values,
+            continues,
+            self.imaginationHorizon
+        )
+
+        actorLoss = -torch.mean(lambdaValues)
+
+        self.actorOptimizer.zero_grad()
+        actorLoss.backward()
+        self.actorOptimizer.step()
+
+        valuesForCriticUpdate = self.critic(fullStates[:, :-1].detach())
+        criticLoss = F.mse_loss(valuesForCriticUpdate, lambdaValues.detach())
+
+        self.criticOptimizer.zero_grad()
+        criticLoss.backward()
+        self.criticOptimizer.step()
+
+        metrics = {
+            "actorLoss"         : actorLoss.item(),
+            "logprobs"          : actionLogProbabilities.mean().item(),
+            # "advantages"        : advantages.mean().item(),
+            "entropy"           : entropies.mean().item(),
+            "averageACreward"   : predictedRewards.mean().item(),
+            "criticLoss"        : criticLoss.item(),
+            # "targetCriticValue" : targetCriticValues.mean().item(),
+            "criticValue"       : values.mean().item()}
+        return metrics
+
+    def trainActorCriticOld(self, initialFullState):
+        fullState = initialFullState.detach()   # [actorCriticBatchSize, recurrentSize + representationSize]
+        recurrentState, latentState = torch.split(fullState, [self.recurrentStateSize, self.representationSize], -1)
         action, logProbabilities, entropy = self.actor(fullState.detach())
 
         fullStates, actionLogProbabilities, entropies = [fullState], [logProbabilities], [entropy]
@@ -196,6 +311,27 @@ class Dreamer:
             "targetCriticValue" : targetCriticValues.mean().item(),
             "criticValue"       : criticValues.mean().item()}
         return metrics
+
+
+    def compute_lambda_values(self, rewards, values, continues, horizon_length, lambda_=0.95):
+        """
+        rewards : (batch_size, time_step, hidden_size)
+        values : (batch_size, time_step, hidden_size)
+        continue flag will be added
+        """
+        rewards = rewards[:, :-1]
+        continues = continues[:, :-1]
+        next_values = values[:, 1:]
+        last = next_values[:, -1]
+        inputs = rewards + continues * next_values * (1 - lambda_)
+
+        outputs = []
+        # single step
+        for index in reversed(range(horizon_length - 1)):
+            last = inputs[:, index] + continues[:, index] * lambda_ * last
+            outputs.append(last)
+        returns = torch.stack(list(reversed(outputs)), dim=1).to(device)
+        return returns
 
 
     def lambdaValues(self, rewards, values, gamma=0.997, lambda_=0.95):
@@ -287,12 +423,12 @@ class Dreamer:
         self.priorNet.load_state_dict(            checkpoint['priorNet'])
         self.posteriorNet.load_state_dict(        checkpoint['posteriorNet'])
         self.rewardPredictor.load_state_dict(     checkpoint['rewardPredictor'])
-        # self.actor.load_state_dict(               checkpoint['actor'])
+        self.actor.load_state_dict(               checkpoint['actor'])
         self.critic.load_state_dict(              checkpoint['critic'])
         self.targetCritic.load_state_dict(        checkpoint['targetCritic'])
         self.worldModelOptimizer.load_state_dict( checkpoint['worldModelOptimizer'])
         self.criticOptimizer.load_state_dict(     checkpoint['criticOptimizer'])
-        # self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])
+        self.actorOptimizer.load_state_dict(      checkpoint['actorOptimizer'])
         self.valueMoments.load_state_dict(        checkpoint['valueMoments'])
         self.recurrentState =                     checkpoint['recurrentState']
         self.totalUpdates =                       checkpoint['totalUpdates']
