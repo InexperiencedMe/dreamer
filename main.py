@@ -10,7 +10,7 @@ np.set_printoptions(threshold=2000, linewidth=200)
 environmentName         = "CarRacing-v3"
 renderMode              = None
 seed                    = 1
-stepCountLimit          = 256                   # Determines sequenceLength for nowgit
+stepCountLimit          = 256                   # Determines sequenceLength for now
 
 episodesBeforeStart     = 20
 numNewEpisodePlay       = 1
@@ -20,11 +20,11 @@ checkpointInterval      = 1000
 bufferSize              = 100
 
 numUpdates              = 10000
-resume                  = False
+resume                  = True
 saveMetrics             = True
 saveCheckpoints         = True
-runName                 = f"{environmentName}_SD_WMandBL"
-checkpointToLoad        = f"checkpoints/{runName}_44000"
+runName                 = f"{environmentName}_SimpleDreamerNets"
+checkpointToLoad        = f"checkpoints/{runName}_40000"
 metricsFilename         = f"metrics/{runName}"
 plotFilename            = f"plots/{runName}"
 videoFilename           = f"videos/{runName}"
@@ -58,7 +58,7 @@ for i in range(start - episodesBeforeStart, start + numUpdates + 1):
             stepCount, totalReward, done = 0, 0, False
             while not done:
                 action = dreamer.act(observation, reset=(stepCount == 0)).view(-1)
-                newObservation, reward, terminated, truncated, info = env.step(action.cpu().numpy())
+                newObservation, reward, terminated, truncated, info = env.step(enforceActionBounds(action.cpu(), actionLow=dreamer.actionLow, actionHigh=dreamer.actionHigh).numpy())
                 newObservation = F.interpolate(torch.from_numpy(np.transpose(newObservation, (2, 0, 1))).unsqueeze(0).float()/255.0, size=(32, 32), mode='bilinear').to(device)
                 stepCount += 1
                 done = terminated or truncated or stepCount >= stepCountLimit

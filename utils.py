@@ -188,7 +188,7 @@ def saveVideoFromGymEnv(actor, envName, filename, frameLimit=512, fps=30, macroB
 
     while not done and frameCount < frameLimit:
         action = actor.act(observation, reset=(frameCount == 0)).view(-1)
-        observation, reward, terminated, truncated, _ = env.step(action.cpu().numpy())
+        observation, reward, terminated, truncated, _ = env.step(enforceActionBounds(action.cpu(), actionLow=actor.actionLow, actionHigh=actor.actionHigh).numpy())
         observation = F.interpolate(torch.from_numpy(np.transpose(observation, (2, 0, 1))).unsqueeze(0).float()/255.0, size=(32, 32), mode='bilinear').to(device)
         done = terminated or truncated
         totalReward += reward
@@ -227,4 +227,45 @@ class Moments(nn.Module):
         self.high = self._decay*self.high + (1 - self._decay)*high
         inverseScale = torch.max(self._min, self.high - self.low)
         return self.low.detach(), inverseScale.detach()
-    
+
+def create_normal_dist(
+    x,
+    std=None,
+    mean_scale=1,
+    init_std=0,
+    min_std=0.1,
+    activation=None,
+    event_shape=None,
+):
+    if std == None:
+        mean, std = torch.chunk(x, 2, -1)
+        mean = mean / mean_scale
+        if activation:
+            mean = activation(mean)
+        mean = mean_scale * mean
+        std = F.softplus(std + init_std) + min_std
+    else:
+        mean = x
+    dist = torch.distributions.Normal(mean, std)
+    if event_shape:
+        dist = torch.distributions.Independent(dist, event_shape)
+    return dist
+
+def enforceActionBounds(action, actionLow=None, actionHigh=None):
+    if actionLow and actionHigh:
+        action = 0.5 * (action + 1) * (torch.tensor(actionHigh) - torch.tensor(actionLow)) + torch.tensor(actionLow)
+    return action
+
+
+def horizontal_forward(network, x, y=None, input_shape=(-1,), output_shape=(-1,)):
+    batch_with_horizon_shape = x.shape[: -len(input_shape)]
+    if not batch_with_horizon_shape:
+        batch_with_horizon_shape = (1,)
+    if y is not None:
+        x = torch.cat((x, y), -1)
+        input_shape = (x.shape[-1],)  #
+    x = x.reshape(-1, *input_shape)
+    x = network(x)
+
+    x = x.reshape(*batch_with_horizon_shape, *output_shape)
+    return x

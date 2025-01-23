@@ -11,10 +11,11 @@ class SequenceModel(nn.Module):
         self.representationSize = representationSize
         self.actionSize = actionSize
         self.recurrentStateSize = recurrentStateSize
-        self.recurrent = nn.GRUCell(representationSize + actionSize, recurrentStateSize)
+        self.preprocess = nn.Tanh(nn.Linear(representationSize + actionSize, 256))
+        self.recurrent = nn.GRUCell(256, recurrentStateSize)
 
     def forward(self, representation, action, recurrentState):
-        return self.recurrent(torch.cat((representation, action), -1), recurrentState)
+        return self.recurrent(self.preprocess(torch.cat((representation, action), -1)), recurrentState)
     
     def initializeRecurrentState(self, size=1):
         return torch.zeros((size, self.recurrentStateSize)).to(device)
