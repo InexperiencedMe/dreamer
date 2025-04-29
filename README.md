@@ -1,4 +1,4 @@
-Work in progress. I will make it work one day
+OLD REPO. Updated, working version is [here](https://github.com/InexperiencedMe/NaturalDreamer)
 
 
 
